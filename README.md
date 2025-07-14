@@ -1,4 +1,4 @@
-# swed_heart
+# swede_heart
 
 A new Flutter project.
 
