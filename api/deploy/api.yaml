@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: swedeheart-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: swedeheart-api
+  template:
+    metadata:
+      labels:
+        app: swedeheart-api
+    spec:
+      volumes:
+      - name: swedeheart-api-persistent-storage
+        persistentVolumeClaim:
+          claimName: swedeheart-api-pv-claim
+      containers:
+        - name: swedeheart-api
+          image: 'registry.k8s.gu.se/appademin-sahlgrenska/swedeheart-api:0.0.1'
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: web
+              protocol: TCP
+          volumeMounts:
+          - mountPath: /pb/pb_data
+            name: swedeheart-api-persistent-storage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: swedeheart-api-service
+spec:
+  selector:
+    app: swedeheart-api
+  ports:
+    - protocol: TCP
+      port: 8080
+---
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: swedeheart-api
+  annotations:
+    kubernetes.io/tls-acme: "true"
+spec:
+  host: swedeheart-api.prod.appadem.in
+  to:
+    kind: Service
+    name: swedeheart-api-service
+    weight: 100
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
