@@ -32,31 +32,54 @@ class HealthManager {
   bool isAuthorized = false;
   bool triedToAuthorize = false;
   bool authorizationFailed = false;
+  Future? ongoingUpload;
+
+  void reset() {
+    data = {};
+    isAuthorized = false;
+    triedToAuthorize = false;
+    authorizationFailed = false;
+  }
+
+  Future init() async {
+    if (data.isNotEmpty) {
+      return;
+    }
+
+    await authorize();
+    if (!isAuthorized) {
+      if (kDebugMode) {
+        print('HealthManager: Authorization failed or not requested yet.');
+      }
+      return;
+    }
+    data = {};
+    List<HealthDataPoint> healthData = await health.getHealthDataFromTypes(
+      dateFrom,
+      DateTime.now(),
+      types,
+    );
+
+    for (var type in types) {
+      data[type] = healthData.where((element) => element.type == type).toList();
+    }
+    data.removeWhere((key, value) => value.isEmpty);
+  }
 
   Future<bool> uploadLatestData(String personalId) async {
     try {
-      data = {};
-      List<HealthDataPoint> healthData = await health.getHealthDataFromTypes(
-        dateFrom,
-        DateTime.now(),
-        types,
-      );
-      for (var type in types) {
-        data[type] = healthData
-            .where((element) => element.type == type)
-            .toList();
-      }
-      data.removeWhere((key, value) => value.isEmpty);
-
-      await Api().uploadData(
+      ongoingUpload = await Api().uploadData(
         personalId,
         data.values.expand((element) => element).toList(),
       );
+      await ongoingUpload;
+      ongoingUpload = null;
       return true;
     } catch (e) {
       if (kDebugMode) {
         print('Error uploading latest data: $e');
       }
+      ongoingUpload = null;
       return false;
     }
   }

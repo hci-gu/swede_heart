@@ -5,6 +5,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:swede_heart/screens/home.dart';
 import 'package:swede_heart/screens/introduction.dart';
 import 'package:swede_heart/screens/login.dart';
+import 'package:swede_heart/screens/steps.dart';
 import 'package:swede_heart/state/auth.dart';
 
 class RouterNotifier extends ChangeNotifier {
@@ -19,16 +20,14 @@ class RouterNotifier extends ChangeNotifier {
 
   String? _redirectLogic(BuildContext context, GoRouterState state) {
     bool loggedIn = _ref.read(authProvider) != null;
-
-    // handle logging in
-    if (!loggedIn && state.matchedLocation == '/loading') {
-      return null;
-    } else if (loggedIn && state.matchedLocation == '/loading') {
-      return '/';
-    }
+    bool hasUploadedData = _ref.read(dataUploadedProvider);
 
     if (loggedIn && _isLoginRoute(state.matchedLocation)) {
-      return '/';
+      if (hasUploadedData) {
+        return '/';
+      } else {
+        return '/steps';
+      }
     }
     if (!loggedIn && !_isLoginRoute(state.matchedLocation)) {
       return '/introduction';
@@ -39,7 +38,7 @@ class RouterNotifier extends ChangeNotifier {
   bool _isLoginRoute(String route) {
     return route == '/introduction' ||
         route == '/introduction/login' ||
-        route == '/introduction/signup';
+        route == '/introduction/steps';
   }
 }
 
@@ -58,6 +57,13 @@ final routerProvider = Provider.family<GoRouter, bool>((ref, loggedIn) {
         path: '/',
         name: 'home',
         builder: (context, state) => const HomeScreen(),
+        routes: [
+          GoRoute(
+            path: 'steps',
+            name: 'steps',
+            builder: (context, state) => const StepDataScreen(),
+          ),
+        ],
       ),
       GoRoute(
         path: '/introduction',

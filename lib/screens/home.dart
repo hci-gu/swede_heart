@@ -1,14 +1,14 @@
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:swede_heart/theme.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(middle: Text('Home')),
-      child: Center(child: Text('Welcome to the Home Screen!')),
+    return AppScaffold(
+      title: 'SwedeHeart',
+      child: Center(child: Text('Tack för din medverkan!')),
     );
   }
 }

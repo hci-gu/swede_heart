@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:swede_heart/api.dart';
 import 'package:swede_heart/router.dart';
 import 'package:swede_heart/state/auth.dart';
 import 'package:swede_heart/storage.dart';
@@ -9,7 +10,7 @@ void main() async {
   await Storage().reloadPrefs();
   String? personalNumber = Storage().getPersonalNumber();
   // Api().init('http://192.168.10.107:8090');
-  // Api().init('https://fracture-puff-api.prod.appadem.in');
+  Api().init('https://swedeheart-api.prod.appadem.in');
 
   runApp(
     ProviderScope(

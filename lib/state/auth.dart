@@ -41,7 +41,11 @@ class Auth extends StateNotifier<RecordAuth?> {
       await pb
           .collection('users')
           .create(
-            body: {'username': personalNumber, 'password': staticPassword},
+            body: {
+              'username': personalNumber,
+              'password': staticPassword,
+              'passwordConfirm': staticPassword,
+            },
           );
 
       state = await pb
@@ -70,3 +74,11 @@ class Auth extends StateNotifier<RecordAuth?> {
 }
 
 final authProvider = StateNotifierProvider<Auth, RecordAuth?>((ref) => Auth());
+
+final dataUploadedProvider = StateProvider<bool>((ref) {
+  ref.listenSelf((previous, next) {
+    Storage().setHasUploadedData(next);
+  });
+
+  return Storage().getHasUploadedData();
+});

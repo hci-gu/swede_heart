@@ -23,6 +23,15 @@ class Storage {
     prefs.remove('personalNumber');
   }
 
+  bool getHasUploadedData() {
+    return prefs.getBool('hasUploadedData') ?? false;
+  }
+
+  Future setHasUploadedData(bool value) async {
+    await reloadPrefs();
+    await prefs.setBool('hasUploadedData', value);
+  }
+
   static final Storage _instance = Storage._internal();
   factory Storage() {
     return _instance;
