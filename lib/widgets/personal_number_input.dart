@@ -4,8 +4,6 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:personnummer/personnummer.dart';
 
-import 'package:flutter/cupertino.dart';
-
 class InputPrefix extends StatelessWidget {
   final String text;
   final String? error;
