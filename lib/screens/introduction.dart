@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:go_router/go_router.dart';
+import 'package:swede_heart/screens/about.dart';
 import 'package:swede_heart/theme.dart';
 
 class IntroductionScreen extends StatelessWidget {
@@ -24,56 +25,48 @@ class IntroductionScreen extends StatelessWidget {
         switch (index) {
           case 0:
             return AppScaffold(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'Välkommen till Swede Heart studien',
-                    style: AppTheme.headLine3,
-                    textAlign: TextAlign.center,
-                  ),
-                  AppTheme.spacer,
-                  Text(
-                    'Löksås ipsum precis tid i dock att kunde, stig äng sin upprätthållande är sin strand, icke i räv har ska oss. Ingalunda verkligen som enligt häst om redan ska ingalunda för enligt, ser sällan trevnadens fram som hela verkligen lax blev.',
-                    style: AppTheme.paragraph,
-                    textAlign: TextAlign.justify,
-                  ),
-                  AppTheme.spacer2x,
-                  Center(
-                    child: CupertinoButton.filled(
-                      onPressed: () {
-                        context.goNamed('login');
-                      },
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: AppTheme.basePadding * 2,
+              child: SafeArea(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    Image.asset('assets/logo.png', width: 100, height: 100),
+                    Text(
+                      'SWEDEHEART',
+                      style: AppTheme.headLine3,
+                      textAlign: TextAlign.center,
+                    ),
+                    SizedBox(height: 64),
+                    Text(
+                      'Välkommen till studien',
+                      style: AppTheme.headLine3,
+                      textAlign: TextAlign.center,
+                    ),
+                    AppTheme.spacer,
+                    Text(
+                      'Detta forskningsprojekt syftar till att undersöka fysisk aktivitetsnivå före, direkt efter och längre tid efter en hjärtinfarkt genom att använda data från din iPhone. Vi vill också studera hur fysisk aktivitet påverkar återhämtning och långsiktig hälsa efter hjärtinfarkt, samt hur i eventuellt deltagande i hjärtrehabilitering har samband med hur man rör sig.',
+                      style: AppTheme.paragraph,
+                      textAlign: TextAlign.justify,
+                    ),
+                    AppTheme.spacer2x,
+                    Center(
+                      child: CupertinoButton.filled(
+                        onPressed: () {
+                          context.goNamed('login');
+                        },
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: AppTheme.basePadding * 2,
+                          ),
+                          child: const Text('Börja'),
                         ),
-                        child: const Text('Börja'),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             );
           case 1:
-            return AppScaffold(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Information om studien',
-                    style: AppTheme.headLine3,
-                    textAlign: TextAlign.center,
-                  ),
-                  AppTheme.spacer,
-                  Text(
-                    'Löksås ipsum precis tid i dock att kunde, stig äng sin upprätthållande är sin strand, icke i räv har ska oss. Ingalunda verkligen som enligt häst om redan ska ingalunda för enligt, ser sällan trevnadens fram som hela verkligen lax blev. Träutensilierna precis sista häst strand träutensilierna vi kan ännu åker upprätthållande, i kunde tidigare plats varit av kom precis dag flera, som åker hwila tiden som mjuka vemod tiden mjuka.\n\n Enligt nu hela söka groda omfångsrik som själv vad vi, sig sorgliga dimmhöljd omfångsrik både fram groda ordningens, gör nu vad nu genom strand bäckasiner och. Vad del dimmhöljd sin träutensilierna fram och rot trevnadens sitt, sorgliga icke rot mot söka oss verkligen del, vid tiden händer vid björnbär trevnadens icke tre. Samma redan vad sitt helt blivit det av, vad denna därmed har räv mot tre, händer icke när vidsträckt mot blivit.',
-                    style: AppTheme.paragraph,
-                  ),
-                ],
-              ),
-            );
+            return const AboutScreen();
           default:
             return Container();
         }

@@ -26,11 +26,11 @@ class LoginScreen extends HookConsumerWidget {
     }, [controller.text]);
 
     return AppScaffold(
-      title: 'Logga in',
+      title: 'Personnummer',
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text('Logga in med ditt personnummer'),
+          Text('Ange ditt personnummer'),
           AppTheme.spacer2x,
           PersonalNumberInput(controller: controller),
           AppTheme.spacer2x,
@@ -45,9 +45,33 @@ class LoginScreen extends HookConsumerWidget {
                       return;
                     }
                     if (context.mounted) {
-                      await ref
-                          .read(authProvider.notifier)
-                          .signup(controller.text);
+                      try {
+                        await ref
+                            .read(authProvider.notifier)
+                            .signup(controller.text);
+                      } catch (e) {
+                        if (context.mounted) {
+                          await showCupertinoDialog(
+                            context: context,
+                            builder: (context) => CupertinoAlertDialog(
+                              title: const Text('Fel'),
+                              content: const Text(
+                                'Ett fel uppstod, försök igen senare.',
+                              ),
+                              actions: [
+                                CupertinoDialogAction(
+                                  isDefaultAction: true,
+                                  onPressed: () {
+                                    Navigator.of(context).pop();
+                                  },
+                                  child: const Text('OK'),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                        return;
+                      }
                     }
                   }
                 : null,

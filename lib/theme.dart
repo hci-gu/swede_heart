@@ -94,12 +94,14 @@ class AppScaffold extends StatelessWidget {
   final Widget child;
   final String? title;
   final bool withPadding;
+  final bool noBackButton;
 
   const AppScaffold({
     super.key,
     required this.child,
     this.title,
     this.withPadding = true,
+    this.noBackButton = false,
   });
 
   @override
@@ -107,12 +109,13 @@ class AppScaffold extends StatelessWidget {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: title != null ? Text(title!, style: AppTheme.headLine3) : null,
+        leading: noBackButton ? SizedBox(width: 0, height: 0) : null,
       ),
       child: Padding(
         padding: withPadding
             ? EdgeInsetsGeometry.symmetric(
                 horizontal: AppTheme.basePadding * 2,
-                vertical: AppTheme.basePadding * 8,
+                vertical: AppTheme.basePadding,
               )
             : EdgeInsets.zero,
         child: child,

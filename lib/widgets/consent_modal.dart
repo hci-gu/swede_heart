@@ -10,26 +10,42 @@ class ConsentModal extends HookWidget {
     ValueNotifier<bool> consent = useState(false);
 
     return CupertinoAlertDialog(
-      title: const Text('Ge ditt samtycke'),
+      title: const Text('Samtycke till att delta i projektet'),
       content: Column(
         children: [
           Text(
-            'Genom att fortsätta går du med på att din stegdata används i forskningssyfte.',
+            'Jag har fått skriftlig information om studien och har haft möjlighet att ställa frågor. Jag får behålla den skriftliga informationen.',
+            style: const TextStyle(fontSize: 14, color: CupertinoColors.label),
+            textAlign: TextAlign.justify,
+          ),
+          AppTheme.spacer,
+          Text(
+            'Jag samtycker till att delta i projektet Longitudinella fysiska aktivitetsmönster före och efter hjärtinfarkt med hjälp av retrospektiv iOS-data',
+            style: const TextStyle(fontSize: 14, color: CupertinoColors.label),
+            textAlign: TextAlign.justify,
           ),
           AppTheme.spacer2x,
-          CupertinoListTile(
-            leading: CupertinoSwitch(
+          Center(
+            child: CupertinoSwitch(
               value: consent.value,
               onChanged: (value) {
                 consent.value = value;
               },
             ),
-            title: const Text(
-              'Jag godkänner att delta i studien',
-              maxLines: 2,
-              style: TextStyle(fontSize: 15, color: CupertinoColors.label),
-            ),
           ),
+          // CupertinoListTile(
+          //   leading: CupertinoSwitch(
+          //     value: consent.value,
+          //     onChanged: (value) {
+          //       consent.value = value;
+          //     },
+          //   ),
+          //   title: const Text(
+          //     'Jag har läst ovan och samtycker',
+          //     maxLines: 4,
+          //     style: TextStyle(fontSize: 15, color: CupertinoColors.label),
+          //   ),
+          // ),
         ],
       ),
       actions: <CupertinoDialogAction>[

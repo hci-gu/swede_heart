@@ -7,9 +7,6 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:open_settings_plus/core/open_settings_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:swede_heart/state/auth.dart';
 import 'package:swede_heart/state/health.dart';
 import 'package:swede_heart/theme.dart';
@@ -172,6 +169,7 @@ class StepDataScreen extends HookConsumerWidget {
 
     return AppScaffold(
       withPadding: false,
+      noBackButton: true,
       title: 'Ladda upp stegdata',
       child: LifeCycleManager(
         ref: ref,
@@ -225,7 +223,21 @@ class StepDataScreen extends HookConsumerWidget {
   }
 
   Widget _loading() {
-    return const Center(child: CupertinoActivityIndicator());
+    return Center(
+      child: Column(
+        children: [
+          CupertinoActivityIndicator(),
+          AppTheme.spacer2x,
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Text(
+              'Laddar upp din data, ( du behöver inte göra något )',
+              style: AppTheme.paragraphMedium,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -276,6 +288,15 @@ class WithStepData extends HookConsumerWidget {
                   ),
                   child: Text('Ladda upp'),
                 ),
+              ),
+            ),
+            AppTheme.spacer,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Text(
+                'Beroende på internetuppkoppling kan det ta en liten stund.',
+                style: AppTheme.paragraphMedium,
+                textAlign: TextAlign.center,
               ),
             ),
           ],
