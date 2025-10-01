@@ -158,10 +158,10 @@ class _LifeCycleManagerState extends State<LifeCycleManager>
   }
 }
 
-class StepDataScreen extends HookConsumerWidget {
+class UploadStepsScreen extends HookConsumerWidget {
   final bool includeDate;
 
-  const StepDataScreen({super.key, this.includeDate = true});
+  const UploadStepsScreen({super.key, this.includeDate = true});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -176,13 +176,13 @@ class StepDataScreen extends HookConsumerWidget {
         child: AlreadyDoneWrapper(
           alreadyDone: false,
           child: loading.value
-              ? _loading()
+              ? _loading('Laddar upp din data\n ( du behöver inte göra något )')
               : FutureBuilder(
                   future:
                       HealthManager().ongoingUpload ?? HealthManager().init(),
                   builder: (_, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
-                      return _loading();
+                      return _loading('Laddar in din stegdata');
                     }
 
                     return WithStepData(
@@ -203,7 +203,7 @@ class StepDataScreen extends HookConsumerWidget {
                             ref.read(dataUploadedProvider.notifier).state =
                                 true;
                             if (context.mounted) {
-                              context.goNamed('home');
+                              context.goNamed('result');
                             }
                           } else if (!success && context.mounted) {
                             await showAlertDialog(context);
@@ -222,21 +222,25 @@ class StepDataScreen extends HookConsumerWidget {
     );
   }
 
-  Widget _loading() {
-    return Center(
-      child: Column(
-        children: [
-          CupertinoActivityIndicator(),
-          AppTheme.spacer2x,
-          Padding(
-            padding: const EdgeInsets.all(8.0),
+  Widget _loading(String message) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        CupertinoActivityIndicator(),
+        AppTheme.spacer2x,
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
             child: Text(
-              'Laddar upp din data, ( du behöver inte göra något )',
+              message,
               style: AppTheme.paragraphMedium,
+              textAlign: TextAlign.center,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

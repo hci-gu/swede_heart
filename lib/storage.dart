@@ -32,6 +32,19 @@ class Storage {
     await prefs.setBool('hasUploadedData', value);
   }
 
+  Future storeEventDate(DateTime date) async {
+    await reloadPrefs();
+    await prefs.setString('eventDate', date.toIso8601String());
+  }
+
+  DateTime? getEventDate() {
+    final String? dateString = prefs.getString('eventDate');
+    if (dateString == null) {
+      return null;
+    }
+    return DateTime.tryParse(dateString);
+  }
+
   static final Storage _instance = Storage._internal();
   factory Storage() {
     return _instance;

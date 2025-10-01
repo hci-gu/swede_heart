@@ -2,9 +2,9 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:swede_heart/screens/home.dart';
 import 'package:swede_heart/screens/introduction.dart';
 import 'package:swede_heart/screens/login.dart';
+import 'package:swede_heart/screens/result/result.dart';
 import 'package:swede_heart/screens/steps.dart';
 import 'package:swede_heart/state/auth.dart';
 
@@ -36,9 +36,7 @@ class RouterNotifier extends ChangeNotifier {
   }
 
   bool _isLoginRoute(String route) {
-    return route == '/introduction' ||
-        route == '/introduction/login' ||
-        route == '/introduction/steps';
+    return route == '/introduction' || route == '/introduction/login';
   }
 }
 
@@ -49,21 +47,19 @@ final routerProvider = Provider.family<GoRouter, bool>((ref, loggedIn) {
     initialLocation: '/loading',
     routes: [
       GoRoute(
+        path: '/',
+        name: 'result',
+        builder: (context, state) => const ResultScreen(),
+      ),
+      GoRoute(
         path: '/loading',
         name: 'loading',
         builder: (context, state) => const LoadingScreen(),
       ),
       GoRoute(
-        path: '/',
-        name: 'home',
-        builder: (context, state) => const HomeScreen(),
-        routes: [
-          GoRoute(
-            path: 'steps',
-            name: 'steps',
-            builder: (context, state) => const StepDataScreen(),
-          ),
-        ],
+        path: '/steps',
+        name: 'steps',
+        builder: (context, state) => const UploadStepsScreen(),
       ),
       GoRoute(
         path: '/introduction',

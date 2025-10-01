@@ -9,7 +9,6 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Storage().reloadPrefs();
   String? personalNumber = Storage().getPersonalNumber();
-  // Api().init('http://192.168.10.107:8090');
   Api().init('https://swedeheart-api.prod.appadem.in');
 
   runApp(

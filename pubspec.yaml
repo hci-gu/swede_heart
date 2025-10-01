@@ -22,6 +22,7 @@ dependencies:
     path: ./health
   dio: ^5.8.0+1
   hexcolor: ^3.0.1
+  fl_chart: ^0.66.1
 
 dev_dependencies:
   flutter_test:
