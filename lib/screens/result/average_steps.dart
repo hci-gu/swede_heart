@@ -38,26 +38,30 @@ class AverageSteps extends ConsumerWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _averageSteps(context, ref, averageStepsBeforeProvider),
-                    Text('Steg före', style: textStyle),
-                  ],
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _averageSteps(context, ref, averageStepsBeforeProvider),
+                      Text('Steg före', style: textStyle),
+                    ],
+                  ),
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _averageSteps(
-                      context,
-                      ref,
-                      averageStepsAfterProvider,
-                      CupertinoColors.activeOrange,
-                    ),
-                    Text('Steg efter', style: textStyle),
-                  ],
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _averageSteps(
+                        context,
+                        ref,
+                        averageStepsAfterProvider,
+                        CupertinoColors.activeOrange,
+                      ),
+                      Text('Steg efter', style: textStyle),
+                    ],
+                  ),
                 ),
-                Container(),
               ],
             ),
           ],

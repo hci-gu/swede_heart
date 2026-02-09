@@ -112,6 +112,10 @@ final chartDataProvider = FutureProvider<ChartData>((ref) async {
 
   stepData = stepData.where((e) => e.dateFrom.isBefore(dataUntil)).toList();
 
+  if (stepData.isEmpty) {
+    return ChartData([], dateForPointAndMode(eventDate, displayMode));
+  }
+
   // Group by device
   final Map<String, List<HealthDataPoint>> deviceMap = {};
   for (final point in stepData) {
@@ -154,6 +158,8 @@ final chartDataProvider = FutureProvider<ChartData>((ref) async {
 final averageStepsBeforeProvider = FutureProvider<double>((ref) async {
   ChartData data = await ref.watch(chartDataProvider.future);
 
+  if (data.pointsBefore.isEmpty) return 0;
+
   return data.pointsBefore.map((e) => e.value).reduce((value, element) {
         return value + element;
       }) /
@@ -162,6 +168,8 @@ final averageStepsBeforeProvider = FutureProvider<double>((ref) async {
 
 final averageStepsAfterProvider = FutureProvider<double>((ref) async {
   ChartData data = await ref.watch(chartDataProvider.future);
+
+  if (data.pointsAfter.isEmpty) return 0;
 
   return data.pointsAfter.map((e) => e.value).reduce((value, element) {
         return value + element;

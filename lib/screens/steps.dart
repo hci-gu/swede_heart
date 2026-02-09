@@ -22,7 +22,7 @@ class RedoPermissions extends HookConsumerWidget {
       }
     });
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: Column(
         children: [
@@ -33,11 +33,12 @@ class RedoPermissions extends HookConsumerWidget {
                 color: CupertinoColors.destructiveRed,
               ),
               SizedBox(width: 8.0),
-              Text(
-                'Du har nekat tillgång via Apple Health.',
-                maxLines: 2,
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                textAlign: TextAlign.start,
+              Expanded(
+                child: Text(
+                  'Du har nekat tillgång via Apple Health.',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                  textAlign: TextAlign.start,
+                ),
               ),
             ],
           ),
@@ -53,9 +54,11 @@ class RedoPermissions extends HookConsumerWidget {
             child: const Row(
               children: [
                 Spacer(),
-                Text(
-                  'Öppna inställningar',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                Flexible(
+                  child: Text(
+                    'Öppna inställningar',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                  ),
                 ),
                 Spacer(),
               ],

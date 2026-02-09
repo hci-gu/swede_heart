@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -29,6 +30,32 @@ import (
 
 const STORAGE_PATH = "/pb/pb_data/raw"
 const CERT_PATH = "/pb/cert"
+
+func requireApiKey(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		key := os.Getenv("API_KEY")
+		if key == "" {
+			log.Println("WARNING: API_KEY environment variable is not set")
+			return echo.NewHTTPError(http.StatusInternalServerError, "Server misconfigured")
+		}
+
+		provided := c.Request().Header.Get("X-API-Key")
+		if provided == "" || provided != key {
+			return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or missing API key")
+		}
+
+		return next(c)
+	}
+}
+
+var personalIdRegex = regexp.MustCompile(`^[a-zA-Z0-9\-]+$`)
+
+func sanitizePersonalId(id string) (string, error) {
+	if id == "" || !personalIdRegex.MatchString(id) {
+		return "", fmt.Errorf("invalid personalId: %q", id)
+	}
+	return id, nil
+}
 
 type Value struct {
 	NumericValue string `json:"numericValue"`
@@ -243,6 +270,7 @@ func main() {
 			println("POST /data")
 			reqBody := struct {
 				PersonalId string     `json:"personalId"`
+				ChunkIndex int        `json:"chunkIndex"`
 				Data       []DataItem `json:"data"`
 			}{}
 
@@ -251,8 +279,21 @@ func main() {
 				return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 			}
 
+			personalId, err := sanitizePersonalId(reqBody.PersonalId)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusBadRequest, "Invalid personalId")
+			}
+
+			// On first chunk, clear any existing data to prevent duplicates on retry
+			if reqBody.ChunkIndex == 0 {
+				if err := clearUserData(app, personalId); err != nil {
+					log.Println("Error clearing existing data: ", err)
+					return echo.NewHTTPError(http.StatusInternalServerError, "Failed to clear existing data")
+				}
+			}
+
 			// Create a folder path for the user based on the PersonalId
-			userFolder := filepath.Join(STORAGE_PATH, reqBody.PersonalId)
+			userFolder := filepath.Join(STORAGE_PATH, personalId)
 			err := os.MkdirAll(userFolder, os.ModePerm) // MkdirAll creates the directory if it doesn't exist
 			if err != nil {
 				log.Println("Error: ", err)
@@ -284,7 +325,7 @@ func main() {
 				return err
 			}
 
-			user, err := getUserForPersonalId(app, reqBody.PersonalId)
+			user, err := getUserForPersonalId(app, personalId)
 			if err != nil {
 				log.Println("Error: ", err)
 				return err
@@ -309,9 +350,11 @@ func main() {
 			})
 		})
 
-		e.Router.GET("/data/:personalId", func(c echo.Context) error {
-			// Extract the personalId from query parameters
-			personalId := c.PathParam("personalId")
+		e.Router.GET("/data/:personalId", requireApiKey(func(c echo.Context) error {
+			personalId, err := sanitizePersonalId(c.PathParam("personalId"))
+			if err != nil {
+				return echo.NewHTTPError(http.StatusBadRequest, "Invalid personalId")
+			}
 
 			// Construct the directory path based on the personalId
 			userFolder := filepath.Join(STORAGE_PATH, personalId)
@@ -345,7 +388,7 @@ func main() {
 
 			// Return the concatenated array of data items
 			return c.JSON(http.StatusOK, allData)
-		})
+		}))
 
 		return nil
 	})
@@ -386,4 +429,36 @@ func findOrCreateUser(app *pocketbase.PocketBase, personalId, eventDate string) 
 	}
 
 	return record, password, nil
+}
+
+func clearUserData(app *pocketbase.PocketBase, personalId string) error {
+	// personalId should already be sanitized by the caller, but verify
+	if _, err := sanitizePersonalId(personalId); err != nil {
+		return err
+	}
+	userFolder := filepath.Join(STORAGE_PATH, personalId)
+
+	// Remove existing data files
+	if err := os.RemoveAll(userFolder); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	// Remove existing dataUploads records for this user
+	user, err := getUserForPersonalId(app, personalId)
+	if err != nil {
+		return nil // no user means no records to clean
+	}
+
+	records, err := app.Dao().FindRecordsByFilter("dataUploads", "user = {:userId}", "", 0, 0, map[string]any{"userId": user.Id})
+	if err != nil {
+		return nil // no records to clean
+	}
+
+	for _, record := range records {
+		if err := app.Dao().DeleteRecord(record); err != nil {
+			log.Printf("Warning: failed to delete dataUpload record %s: %v", record.Id, err)
+		}
+	}
+
+	return nil
 }

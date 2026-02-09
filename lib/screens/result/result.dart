@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:open_settings_plus/core/open_settings_plus.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:swede_heart/screens/about.dart';
 import 'package:swede_heart/screens/result/average_steps.dart';
@@ -17,17 +18,19 @@ class StepsDataScreen extends ConsumerWidget {
       title: 'SwedeHeart',
       withPadding: false,
       child: eventDate == null
-          ? Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'För att kunna visa din stegdata före/efter, behöver vi veta när din hjärtinfarkt skedde.',
-                    textAlign: TextAlign.center,
-                  ),
-                  _selectEventDate(context, ref),
-                ],
+          ? Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'För att kunna visa din stegdata före/efter, behöver vi veta när din hjärtinfarkt skedde.',
+                      textAlign: TextAlign.center,
+                    ),
+                    _selectEventDate(context, ref),
+                  ],
+                ),
               ),
             )
           : ListView(
@@ -159,50 +162,44 @@ class StepsDataScreen extends ConsumerWidget {
   }
 
   Widget _errorContainer(BuildContext context, WidgetRef ref) {
-    return _chartContainer(
-      Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              const Text(
-                'Något gick fel när vi hämtade din data. Testa att ge tillgång till stegdata igen. Om problemet kvarstår, gå till telefonens inställingar för Hälsa appen och aktivera Brytpunkten under "Datatillgång och enheter" oss. Efter du har gett tillgång behöver du starta om appen.',
-                style: TextStyle(fontSize: 14),
-              ),
-              const SizedBox(height: 16),
-              CupertinoButton.filled(
-                borderRadius: BorderRadius.circular(15.0),
-                child: const Row(
-                  children: [
-                    Spacer(),
-                    Text(
-                      'Ge tillgång',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Spacer(),
-                  ],
-                ),
-                onPressed: () async {},
-              ),
-            ],
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Något gick fel när vi hämtade din data. Testa att ge tillgång till stegdata igen. Om problemet kvarstår, gå till telefonens inställingar för Hälsa appen och aktivera Brytpunkten under "Datatillgång och enheter" oss. Efter du har gett tillgång behöver du starta om appen.',
+            style: TextStyle(fontSize: 14),
           ),
-        ),
+          const SizedBox(height: 16),
+          CupertinoButton.filled(
+            borderRadius: BorderRadius.circular(15.0),
+            child: const Text(
+              'Ge tillgång',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 16,
+              ),
+            ),
+            onPressed: () {
+              const settings = OpenSettingsPlusIOS();
+              settings.healthKit();
+            },
+          ),
+        ],
       ),
     );
   }
 
   Widget _notEnoughData(BuildContext context) {
-    return _chartContainer(
-      Center(
-        child: Text(
-          'Det finns inte tillräckligt med data för att generera en graf.',
-          style: CupertinoTheme.of(
-            context,
-          ).textTheme.pickerTextStyle.copyWith(fontSize: 16),
-        ),
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Text(
+        'Det finns inte tillräckligt med data för att generera en graf.',
+        style: CupertinoTheme.of(
+          context,
+        ).textTheme.pickerTextStyle.copyWith(fontSize: 16),
+        textAlign: TextAlign.center,
       ),
     );
   }

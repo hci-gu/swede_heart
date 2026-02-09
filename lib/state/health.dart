@@ -68,7 +68,7 @@ class HealthManager {
 
   Future<bool> uploadLatestData(String personalId) async {
     try {
-      ongoingUpload = await Api().uploadData(
+      ongoingUpload = Api().uploadData(
         personalId,
         data.values.expand((element) => element).toList(),
       );

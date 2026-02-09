@@ -4,7 +4,12 @@ import 'package:dio/dio.dart';
 import 'package:swede_heart/state/health.dart';
 
 class Api {
-  Dio api = Dio(BaseOptions(headers: {'Content-Type': 'application/json'}));
+  Dio api = Dio(BaseOptions(
+    headers: {'Content-Type': 'application/json'},
+    connectTimeout: const Duration(seconds: 15),
+    receiveTimeout: const Duration(seconds: 30),
+    sendTimeout: const Duration(seconds: 60),
+  ));
   void init(String baseUrl) {
     api.options.baseUrl = baseUrl;
   }
@@ -16,6 +21,7 @@ class Api {
     // split up data into 10 equal chunks
     List<Map<String, dynamic>> chunks = [];
     int chunkSize = (data.length / 10).ceil();
+    int chunkIndex = 0;
     for (int i = 0; i < data.length; i += chunkSize) {
       int endIndex = i + chunkSize;
       if (endIndex > data.length) {
@@ -24,9 +30,11 @@ class Api {
 
       Map<String, dynamic> body = {
         'personalId': personalId,
+        'chunkIndex': chunkIndex,
         'data': data.sublist(i, endIndex).map((e) => e.toJson()).toList(),
       };
       chunks.add(body);
+      chunkIndex++;
     }
 
     // Function to handle a single chunk upload

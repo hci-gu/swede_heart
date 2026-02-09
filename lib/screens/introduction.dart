@@ -25,17 +25,25 @@ class IntroductionScreen extends StatelessWidget {
         switch (index) {
           case 0:
             return AppScaffold(
+              withPadding: false,
               child: SafeArea(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.start,
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
-                    Image.asset('assets/logo.png', width: 100, height: 100),
+                    const SizedBox(height: 16),
+                    Center(
+                      child: Image.asset(
+                        'assets/logo.png',
+                        width: 100,
+                        height: 100,
+                      ),
+                    ),
                     Text(
                       'SWEDEHEART',
                       style: AppTheme.headLine3,
                       textAlign: TextAlign.center,
                     ),
-                    SizedBox(height: 64),
+                    const SizedBox(height: 48),
                     Text(
                       'Välkommen till studien',
                       style: AppTheme.headLine3,
@@ -61,6 +69,7 @@ class IntroductionScreen extends StatelessWidget {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 16),
                   ],
                 ),
               ),

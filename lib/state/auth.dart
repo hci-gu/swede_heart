@@ -1,9 +1,16 @@
+import 'dart:math';
+
 import 'package:swede_heart/pocketbase.dart';
 import 'package:swede_heart/storage.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:pocketbase/pocketbase.dart';
 
-const String staticPassword = 'does-not-matter';
+String _generatePassword() {
+  final random = Random.secure();
+  const chars =
+      'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  return List.generate(32, (_) => chars[random.nextInt(chars.length)]).join();
+}
 
 class Auth extends StateNotifier<RecordAuth?> {
   Auth([String? personalId]) : super(null) {
@@ -24,37 +31,38 @@ class Auth extends StateNotifier<RecordAuth?> {
   }
 
   Future login(String personalNumber, [WidgetRef? ref]) async {
-    try {
-      var loginState = await pb
-          .collection('users')
-          .authWithPassword(personalNumber, staticPassword);
-      Storage().storePersonalNumber(personalNumber);
-
-      state = loginState;
-    } catch (e) {
-      rethrow;
+    final password = Storage().getPassword();
+    if (password == null) {
+      throw Exception('No stored password');
     }
+
+    var loginState = await pb
+        .collection('users')
+        .authWithPassword(personalNumber, password);
+    Storage().storePersonalNumber(personalNumber);
+
+    state = loginState;
   }
 
-  Future signup(String personalNumber) async {
-    try {
-      await pb
-          .collection('users')
-          .create(
-            body: {
-              'username': personalNumber,
-              'password': staticPassword,
-              'passwordConfirm': staticPassword,
-            },
-          );
+  Future signup(String personalNumber, {required bool consent}) async {
+    final password = _generatePassword();
 
-      state = await pb
-          .collection('users')
-          .authWithPassword(personalNumber, staticPassword);
-      Storage().storePersonalNumber(personalNumber);
-    } catch (e) {
-      rethrow;
-    }
+    await pb
+        .collection('users')
+        .create(
+          body: {
+            'username': personalNumber,
+            'password': password,
+            'passwordConfirm': password,
+            'consent': consent,
+          },
+        );
+
+    state = await pb
+        .collection('users')
+        .authWithPassword(personalNumber, password);
+    await Storage().storePassword(password);
+    await Storage().storePersonalNumber(personalNumber);
   }
 
   Future logout() async {

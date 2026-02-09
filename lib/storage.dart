@@ -18,9 +18,19 @@ class Storage {
     await prefs.setString('personalNumber', personalNumber);
   }
 
+  String? getPassword() {
+    return prefs.getString('password');
+  }
+
+  Future storePassword(String password) async {
+    await reloadPrefs();
+    await prefs.setString('password', password);
+  }
+
   Future clearCredentials() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
-    prefs.remove('personalNumber');
+    await prefs.remove('personalNumber');
+    await prefs.remove('password');
   }
 
   bool getHasUploadedData() {

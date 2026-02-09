@@ -1,81 +1,63 @@
 import 'package:flutter/cupertino.dart';
-import 'package:hexcolor/hexcolor.dart';
-
-class AppColors {
-  final black = HexColor('#210809');
-  final gray = HexColor('#6B6162');
-}
 
 class AppTheme {
-  static AppColors colors = AppColors();
   static double basePadding = 8.0;
 
-  static TextStyle headLine1 = TextStyle(
+  static const TextStyle headLine1 = TextStyle(
     fontSize: 48,
     fontWeight: FontWeight.w800,
-    color: colors.black,
   );
-  static TextStyle headLine2 = TextStyle(
+  static const TextStyle headLine2 = TextStyle(
     fontSize: 32,
     fontWeight: FontWeight.w700,
-    color: colors.black,
   );
-  static TextStyle headLine3 = TextStyle(
+  static const TextStyle headLine3 = TextStyle(
     fontSize: 24,
     fontWeight: FontWeight.w700,
-    color: colors.black,
   );
-  static TextStyle headLine3Light = TextStyle(
+  static const TextStyle headLine3Light = TextStyle(
     fontSize: 24,
     fontWeight: FontWeight.w300,
-    color: colors.black,
   );
 
-  static TextStyle paragraphMedium = TextStyle(
+  static const TextStyle paragraphMedium = TextStyle(
     fontSize: 16,
     fontWeight: FontWeight.w300,
-    color: colors.black,
   );
-  static TextStyle paragraph = TextStyle(
+  static const TextStyle paragraph = TextStyle(
     fontSize: 14,
     fontWeight: FontWeight.w400,
-    color: colors.black,
   );
-  static TextStyle paragraphSmall = TextStyle(
+  static const TextStyle paragraphSmall = TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.w400,
-    color: colors.black,
   );
 
-  static TextStyle labelXLarge = TextStyle(
+  static const TextStyle labelXLarge = TextStyle(
     fontSize: 24,
     fontWeight: FontWeight.w700,
-    color: colors.black,
   );
-  static TextStyle labelLarge = TextStyle(
+  static const TextStyle labelLarge = TextStyle(
     fontSize: 16,
     fontWeight: FontWeight.w700,
-    color: colors.black,
   );
-  static TextStyle labelMedium = TextStyle(
+  static const TextStyle labelMedium = TextStyle(
     fontSize: 14,
     fontWeight: FontWeight.w700,
-    color: colors.black,
   );
-  static TextStyle labelSmall = TextStyle(
+  static const TextStyle labelSmall = TextStyle(
     fontSize: 12,
     fontWeight: FontWeight.w700,
-    color: colors.black,
   );
-  static TextStyle labelTiny = TextStyle(
+  static const TextStyle labelTiny = TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.w500,
-    color: colors.gray,
+    color: CupertinoColors.systemGrey,
   );
-  static TextStyle labelXTiny = TextStyle(
+  static const TextStyle labelXTiny = TextStyle(
     fontSize: 8,
     fontWeight: FontWeight.w500,
-    color: colors.gray,
+    color: CupertinoColors.systemGrey,
   );
 
   static Widget spacer = SizedBox(width: basePadding, height: basePadding);

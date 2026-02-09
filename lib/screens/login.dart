@@ -27,57 +27,63 @@ class LoginScreen extends HookConsumerWidget {
 
     return AppScaffold(
       title: 'Personnummer',
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text('Ange ditt personnummer'),
-          AppTheme.spacer2x,
-          PersonalNumberInput(controller: controller),
-          AppTheme.spacer2x,
-          CupertinoButton.filled(
-            onPressed: canProceed.value
-                ? () async {
-                    bool? consented = await showCupertinoModalPopup<bool>(
-                      context: context,
-                      builder: (BuildContext context) => const ConsentModal(),
-                    );
-                    if (consented == null || !consented) {
-                      return;
-                    }
-                    if (context.mounted) {
-                      try {
-                        await ref
-                            .read(authProvider.notifier)
-                            .signup(controller.text);
-                      } catch (e) {
-                        if (context.mounted) {
-                          await showCupertinoDialog(
-                            context: context,
-                            builder: (context) => CupertinoAlertDialog(
-                              title: const Text('Fel'),
-                              content: const Text(
-                                'Ett fel uppstod, försök igen senare.',
-                              ),
-                              actions: [
-                                CupertinoDialogAction(
-                                  isDefaultAction: true,
-                                  onPressed: () {
-                                    Navigator.of(context).pop();
-                                  },
-                                  child: const Text('OK'),
-                                ),
-                              ],
-                            ),
-                          );
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('Ange ditt personnummer'),
+              AppTheme.spacer2x,
+              PersonalNumberInput(controller: controller),
+              AppTheme.spacer2x,
+              CupertinoButton.filled(
+                onPressed: canProceed.value
+                    ? () async {
+                        bool? consented = await showCupertinoModalPopup<bool>(
+                          context: context,
+                          builder: (BuildContext context) =>
+                              const ConsentModal(),
+                        );
+                        if (consented == null || !consented) {
+                          return;
                         }
-                        return;
+                        if (context.mounted) {
+                          try {
+                            await ref
+                                .read(authProvider.notifier)
+                                .signup(controller.text, consent: consented);
+                          } catch (e) {
+                            if (context.mounted) {
+                              await showCupertinoDialog(
+                                context: context,
+                                builder: (context) => CupertinoAlertDialog(
+                                  title: const Text('Fel'),
+                                  content: const Text(
+                                    'Ett fel uppstod, försök igen senare.',
+                                  ),
+                                  actions: [
+                                    CupertinoDialogAction(
+                                      isDefaultAction: true,
+                                      onPressed: () {
+                                        Navigator.of(context).pop();
+                                      },
+                                      child: const Text('OK'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                            return;
+                          }
+                        }
                       }
-                    }
-                  }
-                : null,
-            child: const Text('Logga in'),
+                    : null,
+                child: const Text('Logga in'),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

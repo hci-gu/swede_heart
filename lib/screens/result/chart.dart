@@ -217,7 +217,11 @@ class StepDataChart extends HookWidget {
                         reservedSize: 36,
                         interval: 1,
                         getTitlesWidget: (double value, TitleMeta meta) {
-                          DataPoint point = data.points[value.toInt()];
+                          int index = value.toInt();
+                          if (index < 0 || index >= data.points.length) {
+                            return const SizedBox();
+                          }
+                          DataPoint point = data.points[index];
                           DateTime date = point.date;
                           bool isWeekend =
                               date.weekday == 6 || date.weekday == 7;
@@ -294,6 +298,7 @@ class StepDataChart extends HookWidget {
   double get maxX => ((data.points.length - 1)).toDouble();
 
   double get maxY {
+    if (data.points.isEmpty) return 1;
     return data.points.map((e) => e.value).reduce((value, element) {
       if (value > element) {
         return value;
@@ -303,6 +308,7 @@ class StepDataChart extends HookWidget {
   }
 
   int get averageBefore {
+    if (data.pointsBefore.isEmpty) return 0;
     return data.pointsBefore.map((e) => e.value).reduce((value, element) {
           return value + element;
         }) ~/
