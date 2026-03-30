@@ -2,21 +2,26 @@ package main
 
 import (
 	"compress/gzip"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"path/filepath"
 
 	_ "app/migrations"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/pocketbase/pocketbase"
@@ -27,9 +32,13 @@ import (
 )
 
 // const STORAGE_PATH = "./storage"
-
 const STORAGE_PATH = "/pb/pb_data/raw"
 const CERT_PATH = "/pb/cert"
+const uploadStateTimeout = 30 * time.Minute
+const uploadsDirectoryName = "_uploads"
+const uploadStateFileName = ".upload_state.json"
+
+var uploadLocks sync.Map
 
 func requireApiKey(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -71,6 +80,217 @@ type DataItem struct {
 	DeviceId     string `json:"device_id"`
 	SourceId     string `json:"source_id"`
 	SourceName   string `json:"source_name"`
+}
+
+type UploadState struct {
+	SessionID     string    `json:"sessionId"`
+	ExpectedChunk int       `json:"expectedChunk"`
+	StartedAt     time.Time `json:"startedAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+func getUploadLock(personalId string) *sync.Mutex {
+	lock, _ := uploadLocks.LoadOrStore(personalId, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
+func userFolderPath(personalId string) string {
+	return filepath.Join(STORAGE_PATH, personalId)
+}
+
+func uploadsRootPath(personalId string) string {
+	return filepath.Join(userFolderPath(personalId), uploadsDirectoryName)
+}
+
+func uploadSessionPath(personalId, sessionID string) string {
+	return filepath.Join(uploadsRootPath(personalId), sessionID)
+}
+
+func uploadStatePath(personalId string) string {
+	return filepath.Join(userFolderPath(personalId), uploadStateFileName)
+}
+
+func chunkFilePath(personalId, sessionID string, chunkIndex int) string {
+	return filepath.Join(uploadSessionPath(personalId, sessionID), fmt.Sprintf("chunk-%05d.json.gz", chunkIndex))
+}
+
+func chunkHashPath(personalId, sessionID string, chunkIndex int) string {
+	return filepath.Join(uploadSessionPath(personalId, sessionID), fmt.Sprintf("chunk-%05d.sha256", chunkIndex))
+}
+
+func newSessionID(now time.Time) (string, error) {
+	token := make([]byte, 6)
+	if _, err := rand.Read(token); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s-%s", now.UTC().Format("20060102T150405.000000000Z"), hex.EncodeToString(token)), nil
+}
+
+func hashDataItems(data []DataItem) (string, error) {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func loadUploadState(personalId string) (*UploadState, error) {
+	raw, err := os.ReadFile(uploadStatePath(personalId))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var state UploadState
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return nil, err
+	}
+	if state.SessionID == "" {
+		return nil, nil
+	}
+
+	return &state, nil
+}
+
+func saveUploadState(personalId string, state *UploadState) error {
+	stateDir := userFolderPath(personalId)
+	if err := os.MkdirAll(stateDir, os.ModePerm); err != nil {
+		return err
+	}
+
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(uploadStatePath(personalId), raw, 0o600)
+}
+
+func isUploadStateExpired(state *UploadState, now time.Time) bool {
+	if state == nil {
+		return true
+	}
+	return now.Sub(state.UpdatedAt) > uploadStateTimeout
+}
+
+func createNewUploadState(personalId string, now time.Time) (*UploadState, error) {
+	sessionID, err := newSessionID(now)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionDir := uploadSessionPath(personalId, sessionID)
+	if err := os.MkdirAll(sessionDir, os.ModePerm); err != nil {
+		return nil, err
+	}
+
+	state := &UploadState{
+		SessionID:     sessionID,
+		ExpectedChunk: 0,
+		StartedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := saveUploadState(personalId, state); err != nil {
+		return nil, err
+	}
+
+	return state, nil
+}
+
+func isDuplicateChunk(personalId string, state *UploadState, chunkIndex int, incomingHash string) (bool, error) {
+	existingHashBytes, err := os.ReadFile(chunkHashPath(personalId, state.SessionID, chunkIndex))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	existingHash := strings.TrimSpace(string(existingHashBytes))
+	return existingHash == incomingHash, nil
+}
+
+func saveChunkHash(personalId string, state *UploadState, chunkIndex int, hash string) error {
+	return os.WriteFile(chunkHashPath(personalId, state.SessionID, chunkIndex), []byte(hash), 0o600)
+}
+
+func listSessionDirectories(personalId string) ([]string, error) {
+	entries, err := os.ReadDir(uploadsRootPath(personalId))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	dirs := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirs = append(dirs, entry.Name())
+		}
+	}
+	sort.Strings(dirs)
+
+	return dirs, nil
+}
+
+func readDataFromSession(personalId, sessionID string) ([]DataItem, error) {
+	sessionDir := uploadSessionPath(personalId, sessionID)
+	files, err := os.ReadDir(sessionDir)
+	if err != nil {
+		return nil, err
+	}
+
+	chunkFiles := make([]string, 0, len(files))
+	for _, file := range files {
+		name := file.Name()
+		if !file.IsDir() && strings.HasPrefix(name, "chunk-") && strings.HasSuffix(name, ".json.gz") {
+			chunkFiles = append(chunkFiles, name)
+		}
+	}
+	sort.Strings(chunkFiles)
+
+	var allData []DataItem
+	for _, chunkFile := range chunkFiles {
+		filePath := filepath.Join(sessionDir, chunkFile)
+		dataItems, err := readCompressedFile(filePath)
+		if err != nil {
+			return nil, err
+		}
+		allData = append(allData, dataItems...)
+	}
+
+	return allData, nil
+}
+
+func readLegacyData(userFolder string) ([]DataItem, error) {
+	files, err := os.ReadDir(userFolder)
+	if err != nil {
+		return nil, err
+	}
+
+	gzipFiles := make([]string, 0, len(files))
+	for _, file := range files {
+		if !file.IsDir() && filepath.Ext(file.Name()) == ".gz" {
+			gzipFiles = append(gzipFiles, file.Name())
+		}
+	}
+	sort.Strings(gzipFiles)
+
+	var allData []DataItem
+	for _, gzipFile := range gzipFiles {
+		filePath := filepath.Join(userFolder, gzipFile)
+		dataItems, err := readCompressedFile(filePath)
+		if err != nil {
+			return nil, err
+		}
+		allData = append(allData, dataItems...)
+	}
+
+	return allData, nil
 }
 
 // Function to parse date strings and return the earliest and latest dates
@@ -176,30 +396,36 @@ func main() {
 		e.Router.POST("/users", func(c echo.Context) error {
 			data := struct {
 				PersonalId string `json:"personalId"`
+				Password   string `json:"password"`
 				Consent    bool   `json:"consent"`
-				EventDate  string `json:"eventDate"`
 			}{}
 			if err := c.Bind(&data); err != nil {
 				return apis.NewBadRequestError("Failed to read request data", err)
 			}
-			log.Printf("Request body: %v", data)
 
-			user, _, err := findOrCreateUser(app, data.PersonalId, data.EventDate)
+			if data.Password == "" {
+				return echo.NewHTTPError(http.StatusBadRequest, "Password is required")
+			}
+
+			personalId, err := sanitizePersonalId(data.PersonalId)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusBadRequest, "Invalid personalId")
+			}
+
+			user, err := findOrCreateUser(app, personalId, data.Password)
 			if err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to handle user")
 			}
 
-			collection, err := app.Dao().FindCollectionByNameOrId("consent")
-			if err != nil {
-				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to find collection")
+			// Set consent on user record
+			user.Set("consent", data.Consent)
+			if err := app.Dao().SaveRecord(user); err != nil {
+				log.Println("Error saving consent on user:", err)
 			}
 
-			record := models.NewRecord(collection)
-			record.Set("user", user.Id)
-			record.Set("consented", data.Consent)
-			app.Dao().SaveRecord(record)
-
-			return c.JSON(http.StatusOK, user)
+			return c.JSON(http.StatusOK, map[string]interface{}{
+				"id": user.Id,
+			})
 		})
 
 		e.Router.POST("/:id/form", func(c echo.Context) error {
@@ -284,32 +510,100 @@ func main() {
 				return echo.NewHTTPError(http.StatusBadRequest, "Invalid personalId")
 			}
 
-			// On first chunk, clear any existing data to prevent duplicates on retry
-			if reqBody.ChunkIndex == 0 {
-				if err := clearUserData(app, personalId); err != nil {
-					log.Println("Error clearing existing data: ", err)
-					return echo.NewHTTPError(http.StatusInternalServerError, "Failed to clear existing data")
+			if reqBody.ChunkIndex < 0 {
+				return echo.NewHTTPError(http.StatusBadRequest, "Invalid chunkIndex")
+			}
+
+			if len(reqBody.Data) == 0 {
+				return echo.NewHTTPError(http.StatusBadRequest, "No data points provided")
+			}
+
+			dataHash, err := hashDataItems(reqBody.Data)
+			if err != nil {
+				log.Println("Error hashing data: ", err)
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to process upload")
+			}
+
+			now := time.Now().UTC()
+			lock := getUploadLock(personalId)
+			lock.Lock()
+			defer lock.Unlock()
+
+			state, err := loadUploadState(personalId)
+			if err != nil {
+				log.Println("Error loading upload state: ", err)
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to read upload state")
+			}
+
+			switch {
+			case reqBody.ChunkIndex == 0:
+				if state == nil || isUploadStateExpired(state, now) {
+					state, err = createNewUploadState(personalId, now)
+					if err != nil {
+						log.Println("Error creating upload state: ", err)
+						return echo.NewHTTPError(http.StatusInternalServerError, "Failed to start upload")
+					}
+				} else if state.ExpectedChunk > 0 {
+					duplicateFirstChunk, err := isDuplicateChunk(personalId, state, 0, dataHash)
+					if err != nil {
+						log.Println("Error checking duplicate first chunk: ", err)
+						return echo.NewHTTPError(http.StatusInternalServerError, "Failed to process upload")
+					}
+					if !duplicateFirstChunk {
+						state, err = createNewUploadState(personalId, now)
+						if err != nil {
+							log.Println("Error rotating upload state: ", err)
+							return echo.NewHTTPError(http.StatusInternalServerError, "Failed to restart upload")
+						}
+					}
 				}
+			case state == nil || isUploadStateExpired(state, now):
+				return echo.NewHTTPError(http.StatusConflict, "No active upload session. Restart from chunk 0.")
 			}
 
-			// Create a folder path for the user based on the PersonalId
-			userFolder := filepath.Join(STORAGE_PATH, personalId)
-			err := os.MkdirAll(userFolder, os.ModePerm) // MkdirAll creates the directory if it doesn't exist
-			if err != nil {
-				log.Println("Error: ", err)
+			if reqBody.ChunkIndex > state.ExpectedChunk {
+				return echo.NewHTTPError(http.StatusConflict, fmt.Sprintf("Out-of-order chunk. Expected chunk %d.", state.ExpectedChunk))
+			}
+
+			if reqBody.ChunkIndex < state.ExpectedChunk {
+				isDuplicate, err := isDuplicateChunk(personalId, state, reqBody.ChunkIndex, dataHash)
+				if err != nil {
+					log.Println("Error checking duplicate chunk: ", err)
+					return echo.NewHTTPError(http.StatusInternalServerError, "Failed to process upload")
+				}
+				if !isDuplicate {
+					return echo.NewHTTPError(http.StatusConflict, "Chunk already received with different content.")
+				}
+				filePath := chunkFilePath(personalId, state.SessionID, reqBody.ChunkIndex)
+				return c.JSON(http.StatusOK, map[string]interface{}{
+					"message":    "Chunk already received",
+					"filePath":   filePath,
+					"sessionId":  state.SessionID,
+					"chunkIndex": reqBody.ChunkIndex,
+				})
+			}
+
+			filePath := chunkFilePath(personalId, state.SessionID, reqBody.ChunkIndex)
+			if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
+				log.Println("Error creating session directory: ", err)
 				return err
 			}
 
-			// Use the current timestamp for the file name
-			timestamp := time.Now()
-			fileName := fmt.Sprintf("%s.json.gz", timestamp.Format("2006-01-02_15:04:05.000"))
-
-			// Full file path within the user's folder
-			filePath := filepath.Join(userFolder, fileName)
-			err = writeCompressedFile(filePath, reqBody.Data)
-			if err != nil {
+			timestamp := now
+			if err := writeCompressedFile(filePath, reqBody.Data); err != nil {
 				log.Println("Error: ", err)
 				return err
+			}
+			if err := saveChunkHash(personalId, state, reqBody.ChunkIndex, dataHash); err != nil {
+				log.Println("Error saving chunk hash: ", err)
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to persist chunk metadata")
+			}
+
+			state.ExpectedChunk++
+			state.UpdatedAt = now
+			if err := saveUploadState(personalId, state); err != nil {
+				log.Println("Error saving upload state: ", err)
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to persist upload state")
 			}
 
 			// Extract the earliest and latest dates from the data
@@ -345,8 +639,10 @@ func main() {
 
 			// Return success with metadata
 			return c.JSON(http.StatusOK, map[string]interface{}{
-				"message":  "Data saved successfully",
-				"filePath": filePath,
+				"message":    "Data saved successfully",
+				"filePath":   filePath,
+				"sessionId":  state.SessionID,
+				"chunkIndex": reqBody.ChunkIndex,
 			})
 		})
 
@@ -356,37 +652,31 @@ func main() {
 				return echo.NewHTTPError(http.StatusBadRequest, "Invalid personalId")
 			}
 
-			// Construct the directory path based on the personalId
-			userFolder := filepath.Join(STORAGE_PATH, personalId)
+			lock := getUploadLock(personalId)
+			lock.Lock()
+			defer lock.Unlock()
 
-			// Open the directory and list all files
-			files, err := os.ReadDir(userFolder)
+			var allData []DataItem
+			sessionDirs, err := listSessionDirectories(personalId)
 			if err != nil {
 				return err
 			}
-
-			// Slice to hold all concatenated data
-			var allData []DataItem
-
-			// Loop through each file in the directory
-			for _, file := range files {
-				// Ensure we're only processing .gz files
-				if filepath.Ext(file.Name()) == ".gz" {
-					// Construct the full file path
-					filePath := filepath.Join(userFolder, file.Name())
-
-					// Read and decompress the file (which contains an array of DataItem)
-					dataItems, err := readCompressedFile(filePath)
-					if err != nil {
-						return err
-					}
-
-					// Append the data items to the allData slice
-					allData = append(allData, dataItems...)
+			for i := len(sessionDirs) - 1; i >= 0; i-- {
+				allData, err = readDataFromSession(personalId, sessionDirs[i])
+				if err != nil {
+					return err
+				}
+				if len(allData) > 0 {
+					return c.JSON(http.StatusOK, allData)
 				}
 			}
 
-			// Return the concatenated array of data items
+			// Fallback for legacy data written directly under user folder
+			userFolder := userFolderPath(personalId)
+			allData, err = readLegacyData(userFolder)
+			if err != nil {
+				return err
+			}
 			return c.JSON(http.StatusOK, allData)
 		}))
 
@@ -402,33 +692,29 @@ func getUserForPersonalId(app *pocketbase.PocketBase, personalId string) (*model
 	return app.Dao().FindFirstRecordByData("users", "username", personalId)
 }
 
-func findOrCreateUser(app *pocketbase.PocketBase, personalId, eventDate string) (*models.Record, string, error) {
+func findOrCreateUser(app *pocketbase.PocketBase, personalId, password string) (*models.Record, error) {
 	user, _ := getUserForPersonalId(app, personalId)
 
 	if user != nil {
-		return user, "", nil
+		// Returning user: keep existing password to avoid expensive hash rewrites on every request.
+		return user, nil
 	}
 
 	collection, err := app.Dao().FindCollectionByNameOrId("users")
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	record := models.NewRecord(collection)
 	record.Set("username", personalId)
-	record.Set("event_date", eventDate)
-	uuid, _ := uuid.NewRandom()
-	password := uuid.String()
 	record.SetPassword(password)
-
-	log.Println(record.TokenKey())
 
 	if err := app.Dao().SaveRecord(record); err != nil {
 		log.Println(err)
-		return nil, "", err
+		return nil, err
 	}
 
-	return record, password, nil
+	return record, nil
 }
 
 func clearUserData(app *pocketbase.PocketBase, personalId string) error {

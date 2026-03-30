@@ -68,6 +68,21 @@ class Api {
     );
   }
 
+  Future<void> registerUser(
+    String personalId,
+    String password,
+    bool consent,
+  ) async {
+    await api.post(
+      '/users',
+      data: jsonEncode({
+        'personalId': personalId,
+        'password': password,
+        'consent': consent,
+      }),
+    );
+  }
+
   Future uploadData(String personalId, List<HealthDataPoint> data) =>
       uploadDataInChunks(personalId, data);
 

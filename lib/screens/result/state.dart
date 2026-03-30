@@ -46,7 +46,7 @@ final stepDataProvider = FutureProvider<List<HealthDataPoint>>((ref) async {
   DateTime oneYearBefore = eventDate.subtract(const Duration(days: 365));
   DateTime oneYearAfter = eventDate.add(const Duration(days: 365));
 
-  List<HealthDataPoint> stepData = await HealthFactory().getHealthDataFromTypes(
+  List<HealthDataPoint> stepData = await HealthManager().health.getHealthDataFromTypes(
     oneYearBefore,
     oneYearAfter,
     [HealthDataType.STEPS],

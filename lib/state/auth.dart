@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:swede_heart/api.dart';
 import 'package:swede_heart/pocketbase.dart';
 import 'package:swede_heart/storage.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -13,20 +14,17 @@ String _generatePassword() {
 }
 
 class Auth extends StateNotifier<RecordAuth?> {
-  Auth([String? personalId]) : super(null) {
-    init(personalId);
-  }
+  final String? _personalNumber;
 
-  Future<void> init(String? personalNumber) async {
-    if (personalNumber == null) {
-      return;
-    }
+  Auth([this._personalNumber]) : super(null);
+
+  Future<void> tryAutoLogin() async {
+    if (_personalNumber == null) return;
 
     try {
-      await login(personalNumber);
+      await login(_personalNumber);
     } catch (e) {
-      Storage().clearCredentials();
-      rethrow;
+      await Storage().clearCredentials();
     }
   }
 
@@ -47,16 +45,8 @@ class Auth extends StateNotifier<RecordAuth?> {
   Future signup(String personalNumber, {required bool consent}) async {
     final password = _generatePassword();
 
-    await pb
-        .collection('users')
-        .create(
-          body: {
-            'username': personalNumber,
-            'password': password,
-            'passwordConfirm': password,
-            'consent': consent,
-          },
-        );
+    // Register via custom endpoint — handles both new and returning users
+    await Api().registerUser(personalNumber, password, consent);
 
     state = await pb
         .collection('users')

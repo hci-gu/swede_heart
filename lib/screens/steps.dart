@@ -44,7 +44,7 @@ class RedoPermissions extends HookConsumerWidget {
           ),
           const SizedBox(height: 8.0),
           const Text(
-            'Gå till inställingar, välj Hälsa -> Data -> HurGårDet? -> Slå på alla',
+            'Gå till inställingar, välj Hälsa -> Data -> CLI - Hjärtinfarkt -> Slå på alla',
             style: TextStyle(fontSize: 16),
             textAlign: TextAlign.start,
           ),
@@ -174,52 +174,55 @@ class UploadStepsScreen extends HookConsumerWidget {
       withPadding: false,
       noBackButton: true,
       title: 'Ladda upp stegdata',
-      child: LifeCycleManager(
-        ref: ref,
-        child: AlreadyDoneWrapper(
-          alreadyDone: false,
-          child: loading.value
-              ? _loading('Laddar upp din data\n ( du behöver inte göra något )')
-              : FutureBuilder(
-                  future:
-                      HealthManager().ongoingUpload ?? HealthManager().init(),
-                  builder: (_, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return _loading('Laddar in din stegdata');
-                    }
+      child: SafeArea(
+        child: LifeCycleManager(
+          ref: ref,
+          child: AlreadyDoneWrapper(
+            alreadyDone: false,
+            child: loading.value
+                ? _loading(
+                    'Laddar upp din data\n ( du behöver inte göra något )',
+                  )
+                : FutureBuilder(
+                    future:
+                        HealthManager().ongoingUpload ?? HealthManager().init(),
+                    builder: (_, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return _loading('Laddar in din stegdata');
+                      }
 
-                    return WithStepData(
-                      data: HealthManager().data,
-                      userHasData: HealthManager().data.isNotEmpty,
-                      isAuthorized: HealthManager().isAuthorized,
-                      onPressed: () async {
-                        loading.value = true;
-                        String? personalNumber = ref
-                            .read(authProvider)
-                            ?.record
-                            .getStringValue('username');
-                        if (personalNumber != null) {
-                          bool success = await HealthManager().uploadLatestData(
-                            personalNumber,
-                          );
-                          if (success) {
-                            ref.read(dataUploadedProvider.notifier).state =
-                                true;
-                            if (context.mounted) {
-                              context.goNamed('result');
+                      return WithStepData(
+                        data: HealthManager().data,
+                        userHasData: HealthManager().data.isNotEmpty,
+                        isAuthorized: HealthManager().isAuthorized,
+                        onPressed: () async {
+                          loading.value = true;
+                          String? personalNumber = ref
+                              .read(authProvider)
+                              ?.record
+                              .getStringValue('username');
+                          if (personalNumber != null) {
+                            bool success = await HealthManager()
+                                .uploadLatestData(personalNumber);
+                            if (success) {
+                              ref.read(dataUploadedProvider.notifier).state =
+                                  true;
+                              if (context.mounted) {
+                                context.goNamed('result');
+                              }
+                            } else if (!success && context.mounted) {
+                              await showAlertDialog(context);
                             }
-                          } else if (!success && context.mounted) {
-                            await showAlertDialog(context);
                           }
-                        }
 
-                        if (context.mounted) {
-                          loading.value = false;
-                        }
-                      },
-                    );
-                  },
-                ),
+                          if (context.mounted) {
+                            loading.value = false;
+                          }
+                        },
+                      );
+                    },
+                  ),
+          ),
         ),
       ),
     );
@@ -332,6 +335,17 @@ class WithStepData extends HookConsumerWidget {
         ),
       );
     }
+    if (isAuthorized && !userHasData) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32.0),
+          child: Text(
+            'Du har gett tillgång till "Hälsa" appen, men det verkar inte finnas någon stegdata att ladda upp på den här enheten. Har du fler eller kanske en äldre telefon kanske du behöver använda appen på den enheten istället.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
     return const RedoPermissions();
   }
 }
@@ -365,7 +379,7 @@ Future showAlertDialog(BuildContext context) {
       return CupertinoAlertDialog(
         title: const Text('Det gick inte att hämta stegdata'),
         content: const Text(
-          'Du kan ha nekat tillgång till appen, du behöver öppna inställningar för "Hälsa" och ge tillgång till "HurGårDet".\n\nEfter du trycker OK kommer inställningar öppnas, gå till Appar -> Hälsa -> Datatillgång och enheter  -> HurGårDet -> Slå på alla.',
+          'Du kan ha nekat tillgång till appen, du behöver öppna inställningar för "Hälsa" och ge tillgång till "CLI - Hjärtinfarkt".\n\nEfter du trycker OK kommer inställningar öppnas, gå till Appar -> Hälsa -> Datatillgång och enheter  -> CLI - Hjärtinfarkt -> Slå på alla.',
         ),
         actions: [
           CupertinoDialogAction(

@@ -18,8 +18,6 @@ ADD go.mod /pb/go.mod
 ADD go.sum /pb/go.sum
 COPY ./migrations /pb/migrations
 
-ADD ./cert /pb/cert
-
 # build binary
 RUN cd /pb && go build -o app
 

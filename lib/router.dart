@@ -19,6 +19,11 @@ class RouterNotifier extends ChangeNotifier {
   }
 
   String? _redirectLogic(BuildContext context, GoRouterState state) {
+    // LoadingScreen handles its own navigation after auth completes
+    if (state.matchedLocation == '/loading') {
+      return null;
+    }
+
     bool loggedIn = _ref.read(authProvider) != null;
     bool hasUploadedData = _ref.read(dataUploadedProvider);
 
@@ -40,7 +45,7 @@ class RouterNotifier extends ChangeNotifier {
   }
 }
 
-final routerProvider = Provider.family<GoRouter, bool>((ref, loggedIn) {
+final routerProvider = Provider<GoRouter>((ref) {
   final routerNotifier = RouterNotifier(ref);
 
   return GoRouter(
@@ -84,36 +89,24 @@ class LoadingScreen extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    ValueNotifier<bool> waitedLongEnough = useState(false);
-
     useEffect(() {
-      Future.delayed(const Duration(seconds: 5), () {
-        if (context.mounted) {
-          waitedLongEnough.value = true;
+      ref.read(authProvider.notifier).tryAutoLogin().then((_) {
+        if (!context.mounted) return;
+
+        final loggedIn = ref.read(authProvider) != null;
+        final hasUploaded = ref.read(dataUploadedProvider);
+
+        if (loggedIn) {
+          context.go(hasUploaded ? '/' : '/steps');
+        } else {
+          context.goNamed('introduction');
         }
       });
-      return () => {};
+      return null;
     }, []);
 
-    return CupertinoPageScaffold(
-      child: waitedLongEnough.value
-          ? Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Center(child: CupertinoActivityIndicator()),
-                const SizedBox(height: 16),
-                Center(
-                  child: CupertinoButton.filled(
-                    onPressed: () {
-                      context.goNamed('introduction');
-                    },
-                    child: const Text('Abort'),
-                  ),
-                ),
-              ],
-            )
-          : const Center(child: CupertinoActivityIndicator()),
+    return const CupertinoPageScaffold(
+      child: Center(child: CupertinoActivityIndicator()),
     );
   }
 }

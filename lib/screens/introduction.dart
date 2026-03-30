@@ -39,7 +39,7 @@ class IntroductionScreen extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'SWEDEHEART',
+                      'CLI - Hjärtinfarkt',
                       style: AppTheme.headLine3,
                       textAlign: TextAlign.center,
                     ),
@@ -52,6 +52,12 @@ class IntroductionScreen extends StatelessWidget {
                     AppTheme.spacer,
                     Text(
                       'Detta forskningsprojekt syftar till att undersöka fysisk aktivitetsnivå före, direkt efter och längre tid efter en hjärtinfarkt genom att använda data från din iPhone. Vi vill också studera hur fysisk aktivitet påverkar återhämtning och långsiktig hälsa efter hjärtinfarkt, samt hur i eventuellt deltagande i hjärtrehabilitering har samband med hur man rör sig.',
+                      style: AppTheme.paragraph,
+                      textAlign: TextAlign.justify,
+                    ),
+                    AppTheme.spacer,
+                    Text(
+                      'Vill du läsa mer om studien, klicka på fliken "Information" nedan.',
                       style: AppTheme.paragraph,
                       textAlign: TextAlign.justify,
                     ),
@@ -69,7 +75,10 @@ class IntroductionScreen extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 32),
+                    Center(
+                      child: Image.asset('assets/gu_logo.png', height: 80),
+                    ),
                   ],
                 ),
               ),

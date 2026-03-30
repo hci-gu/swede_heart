@@ -15,7 +15,7 @@ class StepsDataScreen extends ConsumerWidget {
     final eventDate = ref.watch(eventDateProvider);
 
     return AppScaffold(
-      title: 'SwedeHeart',
+      title: 'CLI - Hjärtinfarkt',
       withPadding: false,
       child: eventDate == null
           ? Center(
@@ -176,10 +176,7 @@ class StepsDataScreen extends ConsumerWidget {
             borderRadius: BorderRadius.circular(15.0),
             child: const Text(
               'Ge tillgång',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
             ),
             onPressed: () {
               const settings = OpenSettingsPlusIOS();

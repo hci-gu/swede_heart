@@ -18,7 +18,7 @@ spec:
           claimName: swedeheart-api-pv-claim
       containers:
         - name: swedeheart-api
-          image: 'registry.k8s.gu.se/appademin-sahlgrenska/swedeheart-api:0.0.1'
+          image: 'registry.k8s.gu.se/appademin-sahlgrenska/swedeheart-api:0.0.3'
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

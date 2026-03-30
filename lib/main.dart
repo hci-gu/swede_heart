@@ -16,19 +16,17 @@ void main() async {
       overrides: personalNumber != null
           ? [authProvider.overrideWith((ref) => Auth(personalNumber))]
           : [],
-      child: App(loggedIn: personalNumber != null),
+      child: const App(),
     ),
   );
 }
 
 class App extends ConsumerWidget {
-  final bool loggedIn;
-
-  const App({super.key, this.loggedIn = false});
+  const App({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(routerProvider(loggedIn));
+    final router = ref.watch(routerProvider);
 
     return GestureDetector(
       onTap: () {
