@@ -320,6 +320,13 @@ write_csv <- function(data, path) {
   fwrite(data, path, na = "")
 }
 
+setorder_existing <- function(data, columns) {
+  existing_columns <- columns[columns %in% names(data)]
+  if (length(existing_columns)) {
+    setorderv(data, existing_columns)
+  }
+}
+
 args <- parse_args(commandArgs(trailingOnly = TRUE))
 require_arg(args, "health_records")
 require_arg(args, "keys")
@@ -442,7 +449,10 @@ setcolorder(
     ))
   )
 )
-setorder(aligned, subject_id, relative_day, dateFrom, dataType)
+setorder_existing(
+  aligned,
+  c("subject_id", "relative_day", "record_date", "dateFrom", "dataType")
+)
 
 daily_counts <- aligned[
   ,

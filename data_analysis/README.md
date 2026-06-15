@@ -39,7 +39,8 @@ summary features such as step sums and walking speed summaries.
 
 ## Assumptions
 
-- `health_records.csv` comes from `scripts/transform_all_health_records.py`.
+- `health_records.csv` comes from the health-record transform output, for
+  example `daily_health_records.csv`.
 - The key file may be `.xlsx`, `.xls`, or `.csv`.
 - For Excel key files, column A is treated as the analysis key/ID and column B
   as `personalId`.
