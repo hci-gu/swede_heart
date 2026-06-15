@@ -191,26 +191,49 @@ type_summary[]
 ```
 
 ```{r plot-average-steps-by-type, fig.width=11, fig.height=6.5}
-plot_steps_by_type <- average_steps_by_type[subject_count >= 3]
+plot_steps_by_type <- merge(
+  CJ(
+    heartattack_type = unique(average_steps_by_type$heartattack_type),
+    relative_day = seq(-params$window_before, params$window_after)
+  ),
+  average_steps_by_type,
+  by = c("heartattack_type", "relative_day"),
+  all.x = TRUE
+)
 
 if (!nrow(plot_steps_by_type)) {
   stop(
-    "No heart attack type has at least 3 subjects contributing data on any relative day.",
+    "No heart attack type data available to plot.",
     call. = FALSE
   )
 }
+
+setorder(plot_steps_by_type, heartattack_type, relative_day)
+plot_steps_by_type[
+  ,
+  average_steps_7d := frollmean(
+    average_steps,
+    n = 7,
+    align = "center",
+    na.rm = TRUE
+  ),
+  by = heartattack_type
+]
 
 ggplot(
   plot_steps_by_type,
   aes(x = relative_day, y = average_steps, color = heartattack_type)
 ) +
   geom_vline(xintercept = 0, linewidth = 0.5, linetype = "dashed", color = "#B91C1C") +
-  geom_smooth(
-    method = "loess",
-    formula = y ~ x,
-    span = 0.22,
-    se = FALSE,
-    linewidth = 0.9
+  geom_line(
+    alpha = 0.22,
+    linewidth = 0.35,
+    na.rm = TRUE
+  ) +
+  geom_line(
+    aes(y = average_steps_7d),
+    linewidth = 0.95,
+    na.rm = TRUE
   ) +
   scale_x_continuous(
     breaks = seq(-params$window_before, params$window_after, by = 90),
@@ -219,7 +242,7 @@ ggplot(
   scale_y_continuous(labels = scales::comma) +
   labs(
     title = "Average Daily Steps Around Heart Attack By Type",
-    subtitle = "Smoothed mean steps; type/day points with fewer than 3 contributing subjects are omitted",
+    subtitle = "Faint lines show raw daily means; bold lines show centered 7-day rolling averages",
     x = "Days relative to heart attack",
     y = "Average daily steps",
     color = "Heart attack type"
