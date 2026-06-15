@@ -47,6 +47,9 @@ summary features such as step sums and walking speed summaries.
   normalizes them to `YYYYMMDD-XXXX` before joining.
 - The clinical file may be `.xlsx`, `.xls`, or `.csv`.
 - For Excel clinical files, the default sheet is `RiksHia`.
+- For Excel clinical files, the clinical key defaults to `pseudo_PNR`.
+- `pseudo_PNR` is matched to column A from the key file, then the key file maps
+  that to `personalId`.
 - For Excel clinical files, heart attack date defaults to column `P`.
 - For Excel clinical files, heart attack type defaults to column `GJ`.
 - `heartattack_type` is carried into all derived outputs.
@@ -63,7 +66,7 @@ summary features such as step sums and walking speed summaries.
 --health-personal-id-col personalId
 --key-personal-id-col personalId
 --key-id-col key
---clinical-personal-id-col personalId
+--clinical-key-col pseudo_PNR
 --clinical-sheet RiksHia
 --clinical-heartattack-date-col P
 --clinical-heartattack-type-col GJ
@@ -71,9 +74,9 @@ summary features such as step sums and walking speed summaries.
 --window-after 365
 ```
 
-For Excel inputs, `--clinical-personal-id-col`, `--clinical-heartattack-date-col`,
-and `--clinical-heartattack-type-col` can be either a header name or an Excel
-column letter such as `A`, `P`, or `GJ`.
+For Excel inputs, `--clinical-key-col`, `--clinical-heartattack-date-col`, and
+`--clinical-heartattack-type-col` can be either a header name or an Excel column
+letter such as `A`, `P`, or `GJ`.
 
 Use `--window-before` and `--window-after` to restrict the aligned records to a
 specific analysis window around the heart attack date.

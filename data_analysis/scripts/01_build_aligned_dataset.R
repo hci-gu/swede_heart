@@ -25,7 +25,7 @@ Optional:
   --health-personal-id-col NAME           default: personalId
   --key-personal-id-col NAME              default: personalId, CSV only
   --key-id-col NAME                       default: key, CSV only
-  --clinical-personal-id-col NAME         default: personalId
+  --clinical-key-col NAME                 default: pseudo_PNR
   --clinical-sheet NAME                   default: RiksHia, Excel only
   --clinical-heartattack-date-col NAME    default: P
   --clinical-heartattack-type-col NAME    default: GJ
@@ -46,7 +46,7 @@ parse_args <- function(args) {
     health_personal_id_col = "personalId",
     key_personal_id_col = "personalId",
     key_id_col = "key",
-    clinical_personal_id_col = "personalId",
+    clinical_key_col = "pseudo_PNR",
     clinical_sheet = "RiksHia",
     clinical_heartattack_date_col = "P",
     clinical_heartattack_type_col = "GJ",
@@ -160,6 +160,12 @@ is_valid_personal_id <- function(value) {
   !is.na(value) & grepl("^[0-9]{8}-[0-9]{4}$", value)
 }
 
+normalize_key <- function(value) {
+  normalized <- trimws(as.character(value))
+  normalized[normalized == ""] <- NA_character_
+  normalized
+}
+
 read_key_table <- function(path, key_id_col, key_personal_id_col) {
   extension <- tolower(tools::file_ext(path))
 
@@ -196,10 +202,11 @@ read_key_table <- function(path, key_id_col, key_personal_id_col) {
     }
   }
 
+  keys[, key := normalize_key(key)]
   keys[, personalId := normalize_personal_id(personalId)]
-  keys <- keys[is_valid_personal_id(personalId)]
+  keys <- keys[!is.na(key) & is_valid_personal_id(personalId)]
   if (!nrow(keys)) {
-    stop("No valid personal IDs found in key file.", call. = FALSE)
+    stop("No valid key/personalId rows found in key file.", call. = FALSE)
   }
   unique(keys)
 }
@@ -207,7 +214,7 @@ read_key_table <- function(path, key_id_col, key_personal_id_col) {
 read_clinical_table <- function(
   path,
   clinical_sheet,
-  personal_id_col,
+  clinical_key_col,
   heartattack_date_col,
   heartattack_type_col
 ) {
@@ -226,10 +233,10 @@ read_clinical_table <- function(
       readxl::read_excel(path, sheet = clinical_sheet, col_names = TRUE)
     )
     return(data.table(
-      personalId = as.character(select_excel_or_named_col(
+      key = normalize_key(select_excel_or_named_col(
         clinical_raw,
-        personal_id_col,
-        "clinical personal ID"
+        clinical_key_col,
+        "clinical key"
       )),
       heartattack_date = select_excel_or_named_col(
         clinical_raw,
@@ -245,7 +252,7 @@ read_clinical_table <- function(
   }
 
   clinical <- fread(path)
-  require_col(clinical, personal_id_col, "clinical data")
+  require_col(clinical, clinical_key_col, "clinical data")
   require_col(clinical, heartattack_date_col, "clinical data")
 
   type_col <- optional_col(clinical, heartattack_type_col)
@@ -253,7 +260,7 @@ read_clinical_table <- function(
     clinical[
       ,
       .(
-        personalId = as.character(get(personal_id_col)),
+        key = normalize_key(get(clinical_key_col)),
         heartattack_date = get(heartattack_date_col),
         heartattack_type = NA_character_
       )
@@ -262,7 +269,7 @@ read_clinical_table <- function(
     clinical[
       ,
       .(
-        personalId = as.character(get(personal_id_col)),
+        key = normalize_key(get(clinical_key_col)),
         heartattack_date = get(heartattack_date_col),
         heartattack_type = as.character(get(type_col))
       )
@@ -317,6 +324,9 @@ args <- parse_args(commandArgs(trailingOnly = TRUE))
 require_arg(args, "health_records")
 require_arg(args, "keys")
 require_arg(args, "clinical")
+if (!is.null(args$clinical_personal_id_col)) {
+  args$clinical_key_col <- args$clinical_personal_id_col
+}
 
 window_before <- parse_days(args$window_before, "--window-before")
 window_after <- parse_days(args$window_after, "--window-after")
@@ -329,7 +339,7 @@ message("Reading clinical data: ", args$clinical)
 clinical <- read_clinical_table(
   args$clinical,
   args$clinical_sheet,
-  args$clinical_personal_id_col,
+  args$clinical_key_col,
   args$clinical_heartattack_date_col,
   args$clinical_heartattack_type_col
 )
@@ -342,9 +352,8 @@ require_col(health, "numericValue", "health records")
 setnames(health, args$health_personal_id_col, "personalId")
 
 health[, personalId := normalize_personal_id(personalId)]
-clinical[, personalId := normalize_personal_id(personalId)]
 health <- health[is_valid_personal_id(personalId)]
-clinical <- clinical[is_valid_personal_id(personalId)]
+clinical <- clinical[!is.na(key)]
 
 clinical[, heartattack_date := to_idate(heartattack_date, "clinical heart attack date")]
 clinical[, heartattack_type := trimws(as.character(heartattack_type))]
@@ -352,12 +361,12 @@ clinical[heartattack_type == "", heartattack_type := NA_character_]
 clinical_events <- clinical[
   !is.na(heartattack_date),
   .(heartattack_date, heartattack_type),
-  by = personalId
+  by = key
 ]
-setorder(clinical_events, personalId, heartattack_date)
-heartattack_events <- clinical_events[, .SD[1], by = personalId]
+setorder(clinical_events, key, heartattack_date)
+heartattack_events <- clinical_events[, .SD[1], by = key]
 
-subject_index <- merge(keys, heartattack_events, by = "personalId", all.x = TRUE)
+subject_index <- merge(keys, heartattack_events, by = "key", all.x = TRUE)
 setorder(subject_index, personalId)
 subject_index[, subject_id := sprintf("S%06d", .I)]
 subject_index[
