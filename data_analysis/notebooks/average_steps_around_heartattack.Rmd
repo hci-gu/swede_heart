@@ -190,6 +190,20 @@ type_summary <- steps_by_type[
 type_summary[]
 ```
 
+```{r users-per-heartattack-type}
+users_per_type <- steps_by_type[
+  ,
+  .(
+    users = uniqueN(subject_id),
+    days_with_step_data = uniqueN(relative_day),
+    observations = .N
+  ),
+  by = heartattack_type
+][order(-users, heartattack_type)]
+
+users_per_type[]
+```
+
 ```{r plot-average-steps-by-type, fig.width=11, fig.height=6.5}
 plot_steps_by_type <- merge(
   CJ(
