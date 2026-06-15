@@ -42,7 +42,7 @@ summary features such as step sums and walking speed summaries.
 - `health_records.csv` comes from the health-record transform output, for
   example `daily_health_records.csv`.
 - The key file may be `.xlsx`, `.xls`, or `.csv`.
-- For Excel key files, column A is treated as the analysis key/ID and column B
+- For Excel key files, column A is treated as `pseudo_PNR` and column B
   as `personalId`.
 - Excel key-file personal IDs may be written as `YYYYMMDDXXXX`; the script
   normalizes them to `YYYYMMDD-XXXX` before joining.

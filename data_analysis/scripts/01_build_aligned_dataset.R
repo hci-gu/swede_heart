@@ -178,35 +178,43 @@ read_key_table <- function(path, key_id_col, key_personal_id_col) {
       )
     }
 
-    keys <- as.data.table(readxl::read_excel(path, col_names = FALSE))
+    keys <- as.data.table(suppressMessages(
+      readxl::read_excel(path, col_names = FALSE)
+    ))
     if (ncol(keys) < 2) {
       stop("Excel key file must have ID in column A and personalId in column B.", call. = FALSE)
     }
     setnames(keys, paste0("col", seq_len(ncol(keys))))
-    keys <- keys[, .(key = as.character(col1), personalId = as.character(col2))]
+    keys <- keys[, .(pseudo_PNR = as.character(col1), personalId = as.character(col2))]
   } else {
     keys <- fread(path)
     require_col(keys, key_personal_id_col, "keys")
     key_col <- optional_col(keys, key_id_col)
 
     if (is.null(key_col)) {
-      keys <- keys[, .(key = NA_character_, personalId = as.character(get(key_personal_id_col)))]
+      keys <- keys[
+        ,
+        .(
+          pseudo_PNR = NA_character_,
+          personalId = as.character(get(key_personal_id_col))
+        )
+      ]
     } else {
       keys <- keys[
         ,
         .(
-          key = as.character(get(key_col)),
+          pseudo_PNR = as.character(get(key_col)),
           personalId = as.character(get(key_personal_id_col))
         )
       ]
     }
   }
 
-  keys[, key := normalize_key(key)]
+  keys[, pseudo_PNR := normalize_key(pseudo_PNR)]
   keys[, personalId := normalize_personal_id(personalId)]
-  keys <- keys[!is.na(key) & is_valid_personal_id(personalId)]
+  keys <- keys[!is.na(pseudo_PNR) & is_valid_personal_id(personalId)]
   if (!nrow(keys)) {
-    stop("No valid key/personalId rows found in key file.", call. = FALSE)
+    stop("No valid pseudo_PNR/personalId rows found in key file.", call. = FALSE)
   }
   unique(keys)
 }
@@ -229,11 +237,11 @@ read_clinical_table <- function(
       )
     }
 
-    clinical_raw <- as.data.table(
+    clinical_raw <- as.data.table(suppressMessages(
       readxl::read_excel(path, sheet = clinical_sheet, col_names = TRUE)
-    )
+    ))
     return(data.table(
-      key = normalize_key(select_excel_or_named_col(
+      pseudo_PNR = normalize_key(select_excel_or_named_col(
         clinical_raw,
         clinical_key_col,
         "clinical key"
@@ -260,7 +268,7 @@ read_clinical_table <- function(
     clinical[
       ,
       .(
-        key = normalize_key(get(clinical_key_col)),
+        pseudo_PNR = normalize_key(get(clinical_key_col)),
         heartattack_date = get(heartattack_date_col),
         heartattack_type = NA_character_
       )
@@ -269,7 +277,7 @@ read_clinical_table <- function(
     clinical[
       ,
       .(
-        key = normalize_key(get(clinical_key_col)),
+        pseudo_PNR = normalize_key(get(clinical_key_col)),
         heartattack_date = get(heartattack_date_col),
         heartattack_type = as.character(get(type_col))
       )
@@ -360,7 +368,7 @@ setnames(health, args$health_personal_id_col, "personalId")
 
 health[, personalId := normalize_personal_id(personalId)]
 health <- health[is_valid_personal_id(personalId)]
-clinical <- clinical[!is.na(key)]
+clinical <- clinical[!is.na(pseudo_PNR)]
 
 clinical[, heartattack_date := to_idate(heartattack_date, "clinical heart attack date")]
 clinical[, heartattack_type := trimws(as.character(heartattack_type))]
@@ -368,12 +376,12 @@ clinical[heartattack_type == "", heartattack_type := NA_character_]
 clinical_events <- clinical[
   !is.na(heartattack_date),
   .(heartattack_date, heartattack_type),
-  by = key
+  by = "pseudo_PNR"
 ]
-setorder(clinical_events, key, heartattack_date)
-heartattack_events <- clinical_events[, .SD[1], by = key]
+setorderv(clinical_events, c("pseudo_PNR", "heartattack_date"))
+heartattack_events <- clinical_events[, .SD[1], by = "pseudo_PNR"]
 
-subject_index <- merge(keys, heartattack_events, by = "key", all.x = TRUE)
+subject_index <- merge(keys, heartattack_events, by = "pseudo_PNR", all.x = TRUE)
 setorder(subject_index, personalId)
 subject_index[, subject_id := sprintf("S%06d", .I)]
 subject_index[
@@ -402,7 +410,7 @@ subject_index <- subject_index[
   .(
     subject_id,
     personalId,
-    key,
+    pseudo_PNR,
     heartattack_date,
     heartattack_type,
     heartattack_source,
