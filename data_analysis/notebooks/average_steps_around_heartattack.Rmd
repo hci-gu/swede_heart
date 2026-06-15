@@ -146,3 +146,89 @@ ggplot(average_steps, aes(x = relative_day, y = subject_count)) +
     plot.title = element_text(face = "bold")
   )
 ```
+
+## Average Steps By Heart Attack Type
+
+```{r summarize-steps-by-type}
+if (!"heartattack_type" %in% names(steps_window)) {
+  stop(
+    "daily_features_aligned.csv is missing required column: heartattack_type",
+    call. = FALSE
+  )
+}
+
+steps_by_type <- copy(steps_window)
+steps_by_type[
+  is.na(heartattack_type) | trimws(as.character(heartattack_type)) == "",
+  heartattack_type := "Unknown"
+]
+
+average_steps_by_type <- steps_by_type[
+  ,
+  .(
+    average_steps = mean(steps_sum, na.rm = TRUE),
+    median_steps = median(steps_sum, na.rm = TRUE),
+    subject_count = uniqueN(subject_id),
+    observation_count = .N
+  ),
+  by = .(heartattack_type, relative_day)
+]
+
+setorder(average_steps_by_type, heartattack_type, relative_day)
+
+type_summary <- steps_by_type[
+  ,
+  .(
+    subject_count = uniqueN(subject_id),
+    observation_count = .N,
+    first_relative_day = min(relative_day),
+    last_relative_day = max(relative_day)
+  ),
+  by = heartattack_type
+][order(-subject_count, heartattack_type)]
+
+type_summary[]
+```
+
+```{r plot-average-steps-by-type, fig.width=11, fig.height=6.5}
+plot_steps_by_type <- average_steps_by_type[subject_count >= 3]
+
+if (!nrow(plot_steps_by_type)) {
+  stop(
+    "No heart attack type has at least 3 subjects contributing data on any relative day.",
+    call. = FALSE
+  )
+}
+
+ggplot(
+  plot_steps_by_type,
+  aes(x = relative_day, y = average_steps, color = heartattack_type)
+) +
+  geom_vline(xintercept = 0, linewidth = 0.5, linetype = "dashed", color = "#B91C1C") +
+  geom_smooth(
+    method = "loess",
+    formula = y ~ x,
+    span = 0.22,
+    se = FALSE,
+    linewidth = 0.9
+  ) +
+  scale_x_continuous(
+    breaks = seq(-params$window_before, params$window_after, by = 90),
+    minor_breaks = seq(-params$window_before, params$window_after, by = 30)
+  ) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Average Daily Steps Around Heart Attack By Type",
+    subtitle = "Smoothed mean steps; type/day points with fewer than 3 contributing subjects are omitted",
+    x = "Days relative to heart attack",
+    y = "Average daily steps",
+    color = "Heart attack type"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor.y = element_blank(),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "#4B5563")
+  )
+```
