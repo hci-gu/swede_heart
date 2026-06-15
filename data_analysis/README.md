@@ -41,6 +41,8 @@ summary features such as step sums and walking speed summaries.
 
 - `health_records.csv` comes from the health-record transform output, for
   example `daily_health_records.csv`.
+- The health record numeric value column is auto-detected. The script uses
+  `numericValue` when present, otherwise `value`.
 - The key file may be `.xlsx`, `.xls`, or `.csv`.
 - For Excel key files, column A is treated as `pseudo_PNR` and column B
   as `personalId`.
@@ -65,6 +67,7 @@ summary features such as step sums and walking speed summaries.
 
 ```bash
 --health-personal-id-col personalId
+--health-value-col auto
 --key-personal-id-col personalId
 --key-id-col key
 --clinical-key-col pseudo_PNR

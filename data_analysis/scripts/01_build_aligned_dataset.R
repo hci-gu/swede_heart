@@ -23,6 +23,7 @@ Required:
 Optional:
   --output-dir PATH                       default: derived
   --health-personal-id-col NAME           default: personalId
+  --health-value-col NAME                 default: auto, uses numericValue or value
   --key-personal-id-col NAME              default: personalId, CSV only
   --key-id-col NAME                       default: key, CSV only
   --clinical-key-col NAME                 default: pseudo_PNR
@@ -44,6 +45,7 @@ parse_args <- function(args) {
   result <- list(
     output_dir = "derived",
     health_personal_id_col = "personalId",
+    health_value_col = "auto",
     key_personal_id_col = "personalId",
     key_id_col = "key",
     clinical_key_col = "pseudo_PNR",
@@ -99,6 +101,27 @@ require_col <- function(data, col, label) {
 
 optional_col <- function(data, col) {
   if (col %in% names(data)) col else NULL
+}
+
+resolve_health_value_col <- function(data, requested_col) {
+  if (!is.null(requested_col) && requested_col != "" && requested_col != "auto") {
+    require_col(data, requested_col, "health records")
+    return(requested_col)
+  }
+
+  for (candidate in c("numericValue", "value")) {
+    if (candidate %in% names(data)) {
+      return(candidate)
+    }
+  }
+
+  stop(
+    sprintf(
+      "health records is missing a numeric value column. Expected one of: numericValue, value. Available columns: %s",
+      paste(names(data), collapse = ", ")
+    ),
+    call. = FALSE
+  )
 }
 
 is_excel_column_ref <- function(value) {
@@ -362,9 +385,12 @@ clinical <- read_clinical_table(
 require_col(health, args$health_personal_id_col, "health records")
 require_col(health, "date", "health records")
 require_col(health, "dataType", "health records")
-require_col(health, "numericValue", "health records")
+health_value_col <- resolve_health_value_col(health, args$health_value_col)
 
 setnames(health, args$health_personal_id_col, "personalId")
+if (health_value_col != "numericValue") {
+  health[, numericValue := get(health_value_col)]
+}
 
 health[, personalId := normalize_personal_id(personalId)]
 health <- health[is_valid_personal_id(personalId)]
