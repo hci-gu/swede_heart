@@ -22,6 +22,24 @@ health_records_aligned.csv
 daily_features_aligned.csv
 ```
 
+## 2. Visualize Average Steps
+
+Notebook:
+
+```text
+data_analysis/notebooks/average_steps_around_heartattack.Rmd
+```
+
+Open it in RStudio after running the aligned dataset script. By default it reads:
+
+```text
+../derived/daily_features_aligned.csv
+```
+
+The first plot shows average daily steps from 365 days before to 365 days after
+heart attack date. The second plot shows how many subjects contribute step data
+for each relative day.
+
 `subject_index.csv` has one row per person and defines the analysis cohort.
 
 `health_records_aligned.csv` keeps one row per health record and adds:
@@ -91,3 +109,5 @@ The scripts use:
 
 - `data.table` for fast CSV processing.
 - `readxl` for `.xlsx`/`.xls` key and clinical files.
+- `ggplot2` for notebook visualizations.
+- `scales` for chart axis formatting.
