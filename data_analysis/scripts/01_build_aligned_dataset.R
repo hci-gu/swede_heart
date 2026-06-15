@@ -13,13 +13,12 @@ library(data.table)
 
 usage <- function() {
   cat("
-Build heart-attack-aligned datasets from health records, key mapping, and clinical CSVs.
+Build heart-attack-aligned datasets from health records, key mapping, and clinical data.
 
 Required:
   --health-records PATH
   --keys PATH                           CSV/XLSX. XLSX uses column A=key, B=personalId.
-  --clinical PATH
-  --clinical-heartattack-date-col NAME
+  --clinical PATH                       CSV/XLSX. XLSX defaults to sheet RiksHia.
 
 Optional:
   --output-dir PATH                       default: derived
@@ -27,6 +26,9 @@ Optional:
   --key-personal-id-col NAME              default: personalId, CSV only
   --key-id-col NAME                       default: key, CSV only
   --clinical-personal-id-col NAME         default: personalId
+  --clinical-sheet NAME                   default: RiksHia, Excel only
+  --clinical-heartattack-date-col NAME    default: P
+  --clinical-heartattack-type-col NAME    default: GJ
   --window-before DAYS                    default: no lower bound
   --window-after DAYS                     default: no upper bound
   --help
@@ -45,6 +47,9 @@ parse_args <- function(args) {
     key_personal_id_col = "personalId",
     key_id_col = "key",
     clinical_personal_id_col = "personalId",
+    clinical_sheet = "RiksHia",
+    clinical_heartattack_date_col = "P",
+    clinical_heartattack_type_col = "GJ",
     window_before = NA_integer_,
     window_after = NA_integer_
   )
@@ -94,6 +99,48 @@ require_col <- function(data, col, label) {
 
 optional_col <- function(data, col) {
   if (col %in% names(data)) col else NULL
+}
+
+is_excel_column_ref <- function(value) {
+  is.character(value) &&
+    length(value) == 1 &&
+    nchar(value) <= 3 &&
+    grepl("^[A-Za-z]+$", value)
+}
+
+excel_column_index <- function(value) {
+  letters <- strsplit(toupper(value), "", fixed = TRUE)[[1]]
+  result <- 0L
+  for (letter in letters) {
+    result <- result * 26L + match(letter, LETTERS)
+  }
+  result
+}
+
+select_excel_or_named_col <- function(data, selector, label) {
+  if (selector %in% names(data)) {
+    return(data[[selector]])
+  }
+
+  if (is_excel_column_ref(selector)) {
+    index <- excel_column_index(selector)
+    if (index > ncol(data)) {
+      stop(
+        sprintf(
+          "%s column '%s' resolves to index %s, but the file has only %s columns.",
+          label,
+          selector,
+          index,
+          ncol(data)
+        ),
+        call. = FALSE
+      )
+    }
+    return(data[[index]])
+  }
+
+  require_col(data, selector, label)
+  data[[selector]]
 }
 
 normalize_personal_id <- function(value) {
@@ -157,6 +204,72 @@ read_key_table <- function(path, key_id_col, key_personal_id_col) {
   unique(keys)
 }
 
+read_clinical_table <- function(
+  path,
+  clinical_sheet,
+  personal_id_col,
+  heartattack_date_col,
+  heartattack_type_col
+) {
+  extension <- tolower(tools::file_ext(path))
+
+  if (extension %in% c("xlsx", "xls")) {
+    if (!requireNamespace("readxl", quietly = TRUE)) {
+      stop(
+        "Package 'readxl' is required to read Excel clinical files. ",
+        "Install it before running this script, or provide the clinical data as CSV.",
+        call. = FALSE
+      )
+    }
+
+    clinical_raw <- as.data.table(
+      readxl::read_excel(path, sheet = clinical_sheet, col_names = TRUE)
+    )
+    return(data.table(
+      personalId = as.character(select_excel_or_named_col(
+        clinical_raw,
+        personal_id_col,
+        "clinical personal ID"
+      )),
+      heartattack_date = select_excel_or_named_col(
+        clinical_raw,
+        heartattack_date_col,
+        "clinical heart attack date"
+      ),
+      heartattack_type = as.character(select_excel_or_named_col(
+        clinical_raw,
+        heartattack_type_col,
+        "clinical heart attack type"
+      ))
+    ))
+  }
+
+  clinical <- fread(path)
+  require_col(clinical, personal_id_col, "clinical data")
+  require_col(clinical, heartattack_date_col, "clinical data")
+
+  type_col <- optional_col(clinical, heartattack_type_col)
+  if (is.null(type_col)) {
+    clinical[
+      ,
+      .(
+        personalId = as.character(get(personal_id_col)),
+        heartattack_date = get(heartattack_date_col),
+        heartattack_type = NA_character_
+      )
+    ]
+  } else {
+    clinical[
+      ,
+      .(
+        personalId = as.character(get(personal_id_col)),
+        heartattack_date = get(heartattack_date_col),
+        heartattack_type = as.character(get(type_col))
+      )
+    ]
+  }
+}
+
 parse_days <- function(value, label) {
   if (is.null(value) || is.na(value) || value == "") {
     return(NA_integer_)
@@ -174,7 +287,13 @@ date_component <- function(value) {
 }
 
 to_idate <- function(value, label) {
-  parsed <- as.IDate(date_component(value))
+  if (inherits(value, "Date") || inherits(value, "POSIXt")) {
+    parsed <- as.IDate(value)
+  } else if (is.numeric(value)) {
+    parsed <- as.IDate(as.Date(value, origin = "1899-12-30"))
+  } else {
+    parsed <- as.IDate(date_component(value))
+  }
   if (all(is.na(parsed)) && any(!is.na(value) & value != "")) {
     stop(sprintf("Could not parse dates in %s", label), call. = FALSE)
   }
@@ -198,7 +317,6 @@ args <- parse_args(commandArgs(trailingOnly = TRUE))
 require_arg(args, "health_records")
 require_arg(args, "keys")
 require_arg(args, "clinical")
-require_arg(args, "clinical_heartattack_date_col")
 
 window_before <- parse_days(args$window_before, "--window-before")
 window_after <- parse_days(args$window_after, "--window-after")
@@ -208,18 +326,20 @@ health <- fread(args$health_records)
 message("Reading keys: ", args$keys)
 keys <- read_key_table(args$keys, args$key_id_col, args$key_personal_id_col)
 message("Reading clinical data: ", args$clinical)
-clinical <- fread(args$clinical)
+clinical <- read_clinical_table(
+  args$clinical,
+  args$clinical_sheet,
+  args$clinical_personal_id_col,
+  args$clinical_heartattack_date_col,
+  args$clinical_heartattack_type_col
+)
 
 require_col(health, args$health_personal_id_col, "health records")
 require_col(health, "date", "health records")
 require_col(health, "dataType", "health records")
 require_col(health, "numericValue", "health records")
-require_col(clinical, args$clinical_personal_id_col, "clinical data")
-require_col(clinical, args$clinical_heartattack_date_col, "clinical data")
 
 setnames(health, args$health_personal_id_col, "personalId")
-setnames(clinical, args$clinical_personal_id_col, "personalId")
-setnames(clinical, args$clinical_heartattack_date_col, "heartattack_date")
 
 health[, personalId := normalize_personal_id(personalId)]
 clinical[, personalId := normalize_personal_id(personalId)]
@@ -227,13 +347,17 @@ health <- health[is_valid_personal_id(personalId)]
 clinical <- clinical[is_valid_personal_id(personalId)]
 
 clinical[, heartattack_date := to_idate(heartattack_date, "clinical heart attack date")]
-heartattack_dates <- clinical[
-  ,
-  .(heartattack_date = first_non_missing_date(heartattack_date)),
+clinical[, heartattack_type := trimws(as.character(heartattack_type))]
+clinical[heartattack_type == "", heartattack_type := NA_character_]
+clinical_events <- clinical[
+  !is.na(heartattack_date),
+  .(heartattack_date, heartattack_type),
   by = personalId
 ]
+setorder(clinical_events, personalId, heartattack_date)
+heartattack_events <- clinical_events[, .SD[1], by = personalId]
 
-subject_index <- merge(keys, heartattack_dates, by = "personalId", all.x = TRUE)
+subject_index <- merge(keys, heartattack_events, by = "personalId", all.x = TRUE)
 setorder(subject_index, personalId)
 subject_index[, subject_id := sprintf("S%06d", .I)]
 subject_index[
@@ -264,6 +388,7 @@ subject_index <- subject_index[
     personalId,
     key,
     heartattack_date,
+    heartattack_type,
     heartattack_source,
     include_reason,
     exclude_reason
@@ -275,7 +400,7 @@ included_subjects <- subject_index[!is.na(heartattack_date)]
 health[, record_date := to_idate(date, "health record date")]
 aligned <- merge(
   health,
-  included_subjects[, .(subject_id, personalId, heartattack_date)],
+  included_subjects[, .(subject_id, personalId, heartattack_date, heartattack_type)],
   by = "personalId",
   all = FALSE,
   allow.cartesian = FALSE
@@ -295,12 +420,14 @@ setcolorder(
     "subject_id",
     "personalId",
     "heartattack_date",
+    "heartattack_type",
     "record_date",
     "relative_day",
     setdiff(names(aligned), c(
       "subject_id",
       "personalId",
       "heartattack_date",
+      "heartattack_type",
       "record_date",
       "relative_day"
     ))
@@ -364,7 +491,7 @@ daily_features <- Reduce(
 )
 
 daily_features <- merge(
-  included_subjects[, .(subject_id, personalId, heartattack_date)],
+  included_subjects[, .(subject_id, personalId, heartattack_date, heartattack_type)],
   daily_features,
   by = "subject_id",
   all.y = TRUE

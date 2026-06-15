@@ -11,7 +11,6 @@ Rscript data_analysis/scripts/01_build_aligned_dataset.R \
   --health-records /path/to/health_records.csv \
   --keys /path/to/pnrkey_DAT-1261.xlsx \
   --clinical /path/to/health_information.csv \
-  --clinical-heartattack-date-col heartattack_date \
   --output-dir /path/to/derived
 ```
 
@@ -30,6 +29,7 @@ daily_features_aligned.csv
 ```text
 subject_id
 heartattack_date
+heartattack_type
 record_date
 relative_day
 ```
@@ -45,6 +45,11 @@ summary features such as step sums and walking speed summaries.
   as `personalId`.
 - Excel key-file personal IDs may be written as `YYYYMMDDXXXX`; the script
   normalizes them to `YYYYMMDD-XXXX` before joining.
+- The clinical file may be `.xlsx`, `.xls`, or `.csv`.
+- For Excel clinical files, the default sheet is `RiksHia`.
+- For Excel clinical files, heart attack date defaults to column `P`.
+- For Excel clinical files, heart attack type defaults to column `GJ`.
+- `heartattack_type` is carried into all derived outputs.
 - `relative_day = record_date - heartattack_date`.
 - `relative_day < 0` means before the heart attack.
 - `relative_day = 0` means the heart attack date.
@@ -59,10 +64,16 @@ summary features such as step sums and walking speed summaries.
 --key-personal-id-col personalId
 --key-id-col key
 --clinical-personal-id-col personalId
---clinical-heartattack-date-col heartattack_date
+--clinical-sheet RiksHia
+--clinical-heartattack-date-col P
+--clinical-heartattack-type-col GJ
 --window-before 365
 --window-after 365
 ```
+
+For Excel inputs, `--clinical-personal-id-col`, `--clinical-heartattack-date-col`,
+and `--clinical-heartattack-type-col` can be either a header name or an Excel
+column letter such as `A`, `P`, or `GJ`.
 
 Use `--window-before` and `--window-after` to restrict the aligned records to a
 specific analysis window around the heart attack date.
@@ -72,4 +83,4 @@ specific analysis window around the heart attack date.
 The scripts use:
 
 - `data.table` for fast CSV processing.
-- `readxl` for `.xlsx`/`.xls` key files.
+- `readxl` for `.xlsx`/`.xls` key and clinical files.
