@@ -40,6 +40,13 @@ The first plot shows average daily steps from 365 days before to 365 days after
 heart attack date. The second plot shows how many subjects contribute step data
 for each relative day.
 
+The main plot can be changed in the notebook YAML:
+
+```yaml
+main_stat: "mean"        # "mean" or "median"
+main_plot_type: "line"   # "line" or "boxplot"
+```
+
 `subject_index.csv` has one row per person and defines the analysis cohort.
 
 `health_records_aligned.csv` keeps one row per health record and adds:

@@ -7,6 +7,8 @@ params:
   daily_features_path: "../derived/daily_features_aligned.csv"
   window_before: 365
   window_after: 365
+  main_stat: "mean"
+  main_plot_type: "line"
 ---
 
 ```{r setup, message=FALSE, warning=FALSE}
@@ -94,18 +96,29 @@ setorder(average_steps, relative_day)
 average_steps[]
 ```
 
+```{r main-plot-settings}
+main_stat <- tolower(params$main_stat)
+main_plot_type <- tolower(params$main_plot_type)
+
+if (!main_stat %in% c("mean", "median")) {
+  stop("params$main_stat must be either 'mean' or 'median'.", call. = FALSE)
+}
+if (!main_plot_type %in% c("line", "boxplot")) {
+  stop("params$main_plot_type must be either 'line' or 'boxplot'.", call. = FALSE)
+}
+
+main_y_col <- if (main_stat == "mean") "average_steps" else "median_steps"
+main_stat_label <- if (main_stat == "mean") "Mean" else "Median"
+average_steps[, main_steps := get(main_y_col)]
+```
+
 ```{r plot-average-steps, fig.width=11, fig.height=6}
-ggplot(average_steps, aes(x = relative_day, y = average_steps)) +
-  geom_vline(xintercept = 0, linewidth = 0.5, linetype = "dashed", color = "#B91C1C") +
-  geom_line(linewidth = 0.7, color = "#1F6FEB") +
-  geom_smooth(
-    method = "loess",
-    formula = y ~ x,
-    span = 0.18,
-    se = TRUE,
-    color = "#111827",
-    fill = "#CBD5E1",
-    linewidth = 0.6
+main_plot_base <- ggplot() +
+  geom_vline(
+    xintercept = 0,
+    linewidth = 0.5,
+    linetype = "dashed",
+    color = "#B91C1C"
   ) +
   scale_x_continuous(
     breaks = seq(-params$window_before, params$window_after, by = 90),
@@ -113,10 +126,9 @@ ggplot(average_steps, aes(x = relative_day, y = average_steps)) +
   ) +
   scale_y_continuous(labels = scales::comma) +
   labs(
-    title = "Average Daily Steps Around Heart Attack",
-    subtitle = "Day 0 is the heart attack date; line shows mean steps across subjects with data that day",
+    title = paste(main_stat_label, "Daily Steps Around Heart Attack"),
     x = "Days relative to heart attack",
-    y = "Average daily steps"
+    y = paste(main_stat_label, "daily steps")
   ) +
   theme_minimal(base_size = 13) +
   theme(
@@ -124,6 +136,51 @@ ggplot(average_steps, aes(x = relative_day, y = average_steps)) +
     plot.title = element_text(face = "bold"),
     plot.subtitle = element_text(color = "#4B5563")
   )
+
+if (main_plot_type == "line") {
+  main_plot <- main_plot_base +
+    geom_line(
+      data = average_steps,
+      aes(x = relative_day, y = main_steps),
+      linewidth = 0.75,
+      color = "#1F6FEB"
+    ) +
+    labs(
+      subtitle = paste(
+        "Day 0 is the heart attack date; line shows",
+        tolower(main_stat_label),
+        "steps across subjects with data that day"
+      )
+    )
+} else {
+  main_plot <- main_plot_base +
+    geom_boxplot(
+      data = steps_window,
+      aes(x = relative_day, y = steps_sum, group = relative_day),
+      coef = Inf,
+      width = 0.65,
+      outlier.shape = NA,
+      fill = "#93C5FD",
+      color = "#1F2937",
+      alpha = 0.28,
+      linewidth = 0.18
+    ) +
+    geom_line(
+      data = average_steps,
+      aes(x = relative_day, y = main_steps),
+      linewidth = 0.75,
+      color = "#1F6FEB"
+    ) +
+    labs(
+      subtitle = paste(
+        "Boxes show quartiles and median; whiskers use min/max; blue line shows",
+        tolower(main_stat_label),
+        "steps"
+      )
+    )
+}
+
+main_plot
 ```
 
 ```{r plot-sample-size, fig.width=11, fig.height=3.5}
