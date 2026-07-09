@@ -160,6 +160,138 @@ resolve_users_dir <- function(raw_data_dir) {
   users_dir
 }
 
+normalize_personal_id <- function(value) {
+  normalized <- trimws(as.character(value))
+  digits <- gsub("[^0-9]", "", normalized)
+  has_full_pnr <- !is.na(digits) & nchar(digits) == 12
+  normalized[has_full_pnr] <- paste0(
+    substr(digits[has_full_pnr], 1, 8),
+    "-",
+    substr(digits[has_full_pnr], 9, 12)
+  )
+  normalized[normalized == ""] <- NA_character_
+  normalized
+}
+
+normalize_key <- function(value) {
+  normalized <- trimws(as.character(value))
+  normalized[normalized == ""] <- NA_character_
+  normalized
+}
+
+is_excel_column_ref <- function(value) {
+  is.character(value) &&
+    length(value) == 1 &&
+    nchar(value) <= 3 &&
+    grepl("^[A-Za-z]+$", value)
+}
+
+excel_column_index <- function(value) {
+  letters <- strsplit(toupper(value), "", fixed = TRUE)[[1]]
+  result <- 0L
+  for (letter in letters) {
+    result <- result * 26L + match(letter, LETTERS)
+  }
+  result
+}
+
+resolve_named_col <- function(data, col) {
+  if (col %in% names(data)) {
+    return(col)
+  }
+  prefixed <- names(data)[startsWith(names(data), paste0(col, " "))]
+  if (length(prefixed) == 1L) {
+    return(prefixed[[1]])
+  }
+  NULL
+}
+
+select_test_col <- function(data, selector) {
+  resolved <- resolve_named_col(data, selector)
+  if (!is.null(resolved)) {
+    return(data[[resolved]])
+  }
+  if (is_excel_column_ref(selector)) {
+    index <- excel_column_index(selector)
+    if (index <= ncol(data)) {
+      return(data[[index]])
+    }
+  }
+  NULL
+}
+
+read_test_key_table <- function(path) {
+  extension <- tolower(tools::file_ext(path))
+  if (extension %in% c("xlsx", "xls")) {
+    if (!requireNamespace("readxl", quietly = TRUE)) {
+      return(data.table())
+    }
+    keys <- as.data.table(suppressMessages(readxl::read_excel(path, col_names = FALSE)))
+    if (ncol(keys) < 2L) {
+      return(data.table())
+    }
+    setnames(keys, paste0("col", seq_len(ncol(keys))))
+    return(keys[, .(pseudo_PNR = normalize_key(col1), personalId = normalize_personal_id(col2))])
+  }
+
+  keys <- fread(path)
+  pseudo_col <- resolve_named_col(keys, "pseudo_PNR")
+  if (is.null(pseudo_col)) {
+    pseudo_col <- names(keys)[[1]]
+  }
+  personal_col <- resolve_named_col(keys, "personalId")
+  if (is.null(personal_col)) {
+    if (ncol(keys) < 2L) {
+      return(data.table())
+    }
+    personal_col <- names(keys)[[2]]
+  }
+  keys[, .(pseudo_PNR = normalize_key(get(pseudo_col)), personalId = normalize_personal_id(get(personal_col)))]
+}
+
+read_test_clinical_keys <- function(path, clinical_sheet, clinical_key_col, heartattack_date_col) {
+  extension <- tolower(tools::file_ext(path))
+  if (extension %in% c("xlsx", "xls")) {
+    if (!requireNamespace("readxl", quietly = TRUE)) {
+      return(character())
+    }
+    clinical <- as.data.table(suppressMessages(
+      readxl::read_excel(path, sheet = clinical_sheet, col_names = TRUE)
+    ))
+  } else {
+    clinical <- fread(path)
+  }
+
+  key_values <- select_test_col(clinical, clinical_key_col)
+  date_values <- select_test_col(clinical, heartattack_date_col)
+  if (is.null(key_values) || is.null(date_values)) {
+    return(character())
+  }
+  key_values <- normalize_key(key_values)
+  date_values <- trimws(as.character(date_values))
+  unique(key_values[!is.na(key_values) & !is.na(date_values) & date_values != ""])
+}
+
+eligible_test_personal_ids <- function(args) {
+  if (is.null(args$keys) || is.null(args$clinical) || args$keys == "" || args$clinical == "") {
+    return(character())
+  }
+  keys <- read_test_key_table(args$keys)
+  if (!nrow(keys)) {
+    return(character())
+  }
+  clinical_keys <- read_test_clinical_keys(
+    args$clinical,
+    args$clinical_sheet,
+    args$clinical_key_col,
+    args$clinical_heartattack_date_col
+  )
+  if (!length(clinical_keys)) {
+    return(character())
+  }
+  unique(keys[pseudo_PNR %in% clinical_keys & !is.na(personalId), personalId])
+}
+
 csv_escape <- function(value) {
   text <- as.character(value)
   text[is.na(text)] <- ""
@@ -870,12 +1002,22 @@ if (!length(user_files)) {
 available_user_count <- length(user_files)
 workers <- min(workers, length(user_files))
 if (test_run) {
-  test_user_count <- workers
-  user_files <- user_files[seq_len(test_user_count)]
-  cat(sprintf(
-    "Test run enabled: processing first %d user(s), one per configured worker\n",
-    length(user_files)
-  ))
+  eligible_personal_ids <- eligible_test_personal_ids(args)
+  normalized_file_ids <- normalize_personal_id(tools::file_path_sans_ext(basename(user_files)))
+  eligible_indices <- which(normalized_file_ids %in% eligible_personal_ids)
+  if (length(eligible_indices)) {
+    user_files <- user_files[eligible_indices[seq_len(min(workers, length(eligible_indices)))]]
+    cat(sprintf(
+      "Test run enabled: selected %d clinically matched user(s), one per configured worker when available\n",
+      length(user_files)
+    ))
+  } else {
+    user_files <- user_files[seq_len(workers)]
+    cat(sprintf(
+      "Test run enabled: no clinically matched test users found up front; processing first %d user(s)\n",
+      length(user_files)
+    ))
+  }
   flush.console()
 }
 if (workers > 1 && !skip_raw_health_records) {

@@ -608,6 +608,11 @@ health[, personalId := normalize_personal_id(personalId)]
 health <- health[is_valid_personal_id(personalId)]
 clinical <- clinical[!is.na(pseudo_PNR)]
 
+message("Health rows after personalId mapping/filter: ", nrow(health))
+message("Health participants after personalId mapping/filter: ", uniqueN(health$personalId))
+message("Key participants: ", uniqueN(keys$personalId))
+message("Clinical keyed rows before date filtering: ", nrow(clinical))
+
 clinical[, heartattack_date := to_idate(heartattack_date, "clinical heart attack date")]
 clinical[, heartattack_type := trimws(as.character(heartattack_type))]
 clinical[heartattack_type == "", heartattack_type := NA_character_]
@@ -671,6 +676,11 @@ subject_index <- subject_index[
 ]
 
 included_subjects <- subject_index[!is.na(heartattack_date)]
+message("Subjects with clinical heart attack date: ", nrow(included_subjects))
+message(
+  "Health participants overlapping included subjects: ",
+  length(intersect(unique(health$personalId), unique(included_subjects$personalId)))
+)
 
 health[, record_date := to_idate(date, "health record date")]
 aligned <- merge(
@@ -693,6 +703,7 @@ aligned <- merge(
   allow.cartesian = FALSE
 )
 aligned[, relative_day := as.integer(record_date - heartattack_date)]
+message("Aligned health rows before window filtering: ", nrow(aligned))
 
 if (!is.na(window_before)) {
   aligned <- aligned[relative_day >= -window_before]
@@ -700,6 +711,7 @@ if (!is.na(window_before)) {
 if (!is.na(window_after)) {
   aligned <- aligned[relative_day <= window_after]
 }
+message("Aligned health rows after window filtering: ", nrow(aligned))
 
 setcolorder(
   aligned,
