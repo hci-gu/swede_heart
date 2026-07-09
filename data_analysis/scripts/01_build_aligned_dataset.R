@@ -821,7 +821,7 @@ setorder(daily_features, subject_id, relative_day)
 aligned[, numeric_value := NULL]
 
 drop_direct_identifiers <- function(data) {
-  cols <- intersect(c("personalId"), names(data))
+  cols <- intersect(c("personalId", "birth_date"), names(data))
   if (length(cols)) {
     data[, (cols) := NULL]
   }

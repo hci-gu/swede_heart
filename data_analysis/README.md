@@ -71,14 +71,14 @@ stays missing. The Physio sheet is joined with the same key as
 
 Clinical alignment derives demographics from `personalId`:
 
-- `birth_date` is parsed from the first eight digits, `YYYYMMDD`.
+- `birth_date` is parsed internally from the first eight digits, `YYYYMMDD`.
 - `gender` uses the Swedish personal identity number convention where the
   third digit after the hyphen is odd for `male` and even for `female`.
 - `age` is age in completed years at `heartattack_date`.
 
-`personalId` is used only internally for joins and derived demographics. It is
-not written to the aligned analysis files; direct identifiers are kept in
-`keys_sensitive_separate/personal_id_map.csv`.
+`personalId` and `birth_date` are used only internally for joins and derived
+demographics. They are not written to the aligned analysis files; direct
+identifiers are kept in `keys_sensitive_separate/personal_id_map.csv`.
 
 Dependencies:
 
@@ -133,8 +133,8 @@ main_plot_type: "line"   # "line" or "boxplot"
 ```
 
 `subject_index.csv` has one row per person and defines the analysis cohort.
-It includes derived `birth_date`, `gender`, `age`, and
-`has_received_physiotherapy`, but not direct `personalId`.
+It includes derived `gender`, `age`, and `has_received_physiotherapy`, but not
+direct `personalId` or `birth_date`.
 
 `health_records_aligned.csv` keeps one row per health record and adds:
 
