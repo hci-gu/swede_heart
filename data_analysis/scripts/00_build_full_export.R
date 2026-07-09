@@ -605,7 +605,7 @@ writeLines(paste(daily_fields, collapse = ","), daily_gz_con, useBytes = TRUE)
 writeLines(paste(daily_fields, collapse = ","), daily_plain_con, useBytes = TRUE)
 
 manifest_users <- vector("list", length(user_files))
-data_type_counts <- integer()
+data_type_counts <- list()
 raw_records_total <- 0L
 numeric_records_total <- 0L
 daily_rows_total <- 0L
