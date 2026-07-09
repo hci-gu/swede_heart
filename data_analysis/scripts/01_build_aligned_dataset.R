@@ -23,6 +23,7 @@ Required:
 Optional:
   --output-dir PATH                       default: derived
   --health-personal-id-col NAME           default: personalId
+  --personal-id-map PATH                  optional subject_id -> personalId map
   --health-value-col NAME                 default: auto, uses numericValue or value
   --key-personal-id-col NAME              default: personalId, CSV only
   --key-id-col NAME                       default: key, CSV only
@@ -48,6 +49,7 @@ parse_args <- function(args) {
   result <- list(
     output_dir = "derived",
     health_personal_id_col = "personalId",
+    personal_id_map = NULL,
     health_value_col = "auto",
     key_personal_id_col = "personalId",
     key_id_col = "key",
@@ -153,6 +155,26 @@ resolve_health_value_col <- function(data, requested_col) {
     ),
     call. = FALSE
   )
+}
+
+add_personal_id_from_map <- function(health, personal_id_map_path, health_personal_id_col) {
+  if (health_personal_id_col %in% names(health)) {
+    return(list(health = health, health_personal_id_col = health_personal_id_col))
+  }
+  if (!"subject_id" %in% names(health) || is.null(personal_id_map_path) || personal_id_map_path == "") {
+    return(list(health = health, health_personal_id_col = health_personal_id_col))
+  }
+  if (!file.exists(personal_id_map_path)) {
+    stop(sprintf("--personal-id-map does not exist: %s", personal_id_map_path), call. = FALSE)
+  }
+
+  message("Mapping health subject_id to personalId using: ", personal_id_map_path)
+  id_map <- fread(personal_id_map_path)
+  require_col(id_map, "subject_id", "personal ID map")
+  require_col(id_map, "personalId", "personal ID map")
+  id_map <- unique(id_map[, .(subject_id, personalId)])
+  health <- merge(health, id_map, by = "subject_id", all.x = TRUE, sort = FALSE)
+  list(health = health, health_personal_id_col = "personalId")
 }
 
 is_excel_column_ref <- function(value) {
@@ -566,6 +588,10 @@ physio <- read_physio_table(
   args$clinical_physio_key_col,
   args$clinical_physio_value_cols
 )
+
+mapped_health <- add_personal_id_from_map(health, args$personal_id_map, args$health_personal_id_col)
+health <- mapped_health$health
+args$health_personal_id_col <- mapped_health$health_personal_id_col
 
 require_col(health, args$health_personal_id_col, "health records")
 require_col(health, "date", "health records")

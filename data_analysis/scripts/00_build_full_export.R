@@ -793,6 +793,10 @@ run_alignment <- function(args, output_dir, health_records_path) {
   command <- c(
     normalizePath(alignment_script, mustWork = TRUE),
     "--health-records", normalizePath(health_records_path, mustWork = TRUE),
+    "--personal-id-map", normalizePath(
+      file.path(output_dir, "keys_sensitive_separate", "personal_id_map.csv"),
+      mustWork = TRUE
+    ),
     "--keys", normalizePath(args$keys, mustWork = TRUE),
     "--clinical", normalizePath(args$clinical, mustWork = TRUE),
     "--output-dir", normalizePath(alignment_dir, mustWork = TRUE),

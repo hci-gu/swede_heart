@@ -15,6 +15,7 @@ Required:
 
 Optional:
   --health-records PATH                 default: EXPORT_DIR/export_logs/daily_health_records_transform/daily_health_records.csv
+  --personal-id-map PATH                default: EXPORT_DIR/keys_sensitive_separate/personal_id_map.csv
   --output-dir PATH                     default: EXPORT_DIR/derived/clinical_alignment
   --script PATH                         default: data_analysis/scripts/01_build_aligned_dataset.R next to this script
   --clinical-sheet NAME                 default: RiksHia
@@ -41,6 +42,7 @@ parse_args <- function(args) {
     keys = NULL,
     clinical = NULL,
     health_records = NULL,
+    personal_id_map = NULL,
     output_dir = NULL,
     script = NULL,
     clinical_sheet = "RiksHia",
@@ -117,6 +119,10 @@ if (is.null(health_records) || health_records == "") {
     "daily_health_records.csv"
   )
 }
+personal_id_map <- args$personal_id_map
+if (is.null(personal_id_map) || personal_id_map == "") {
+  personal_id_map <- file.path(export_dir, "keys_sensitive_separate", "personal_id_map.csv")
+}
 
 output_dir <- args$output_dir
 if (is.null(output_dir) || output_dir == "") {
@@ -129,6 +135,7 @@ if (is.null(alignment_script) || alignment_script == "") {
 }
 
 require_file(health_records, "Health records input")
+require_file(personal_id_map, "Personal ID map")
 require_file(args$keys, "Key file")
 require_file(args$clinical, "Clinical file")
 require_file(alignment_script, "Alignment script")
@@ -137,6 +144,7 @@ dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 command <- c(
   normalizePath(alignment_script, mustWork = TRUE),
   "--health-records", normalizePath(health_records, mustWork = TRUE),
+  "--personal-id-map", normalizePath(personal_id_map, mustWork = TRUE),
   "--keys", normalizePath(args$keys, mustWork = TRUE),
   "--clinical", normalizePath(args$clinical, mustWork = TRUE),
   "--output-dir", normalizePath(output_dir, mustWork = TRUE),
