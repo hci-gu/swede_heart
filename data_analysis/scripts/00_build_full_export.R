@@ -826,6 +826,10 @@ progress_line <- function(completed, total, started_at, raw_records, numeric_rec
   )
 }
 
+batch_range_text <- function(batch) {
+  sprintf("%d-%d", min(batch), max(batch))
+}
+
 transform_user_for_export <- function(i, chunk_dir = NULL) {
   path <- user_files[[i]]
   personal_id <- personal_ids[[i]]
@@ -1130,6 +1134,7 @@ if (workers > 1) {
       "write_daily_chunk",
       "format_duration",
       "progress_line",
+      "batch_range_text",
       "transform_user_for_export"
     ),
     envir = environment()
@@ -1148,12 +1153,94 @@ if (workers > 1) {
   flush.console()
 
   for (batch in batches) {
-    batch_results <- parallel::parLapplyLB(
-      cluster,
-      batch,
-      transform_user_for_export,
-      chunk_dir = chunk_dir
+    batch_results <- tryCatch(
+      parallel::parLapplyLB(
+        cluster,
+        batch,
+        transform_user_for_export,
+        chunk_dir = chunk_dir
+      ),
+      error = function(error) error
     )
+
+    if (inherits(batch_results, "error")) {
+      cat(sprintf(
+        "Parallel worker batch %s failed: %s\n",
+        batch_range_text(batch),
+        conditionMessage(batch_results)
+      ))
+      cat("Retrying that batch serially in the main R process; subsequent batches will use a fresh worker pool.\n")
+      flush.console()
+
+      try(parallel::stopCluster(cluster), silent = TRUE)
+      batch_results <- vector("list", length(batch))
+      for (batch_index in seq_along(batch)) {
+        user_index <- batch[[batch_index]]
+        cat(sprintf(
+          "Serial retry [%d/%d]: %s\n",
+          user_index,
+          length(user_files),
+          basename(user_files[[user_index]])
+        ))
+        flush.console()
+        batch_results[[batch_index]] <- tryCatch(
+          transform_user_for_export(user_index, chunk_dir = chunk_dir),
+          error = function(error) {
+            stop(
+              sprintf(
+                "Failed while processing %s during serial retry: %s",
+                basename(user_files[[user_index]]),
+                conditionMessage(error)
+              ),
+              call. = FALSE
+            )
+          }
+        )
+      }
+
+      cluster <- parallel::makeCluster(workers)
+      parallel::clusterEvalQ(cluster, {
+        library(data.table)
+        NULL
+      })
+      parallel::clusterExport(
+        cluster,
+        varlist = c(
+          "user_files",
+          "personal_ids",
+          "subject_map",
+          "include_personal_id",
+          "skip_raw_health_records",
+          "bucket_minutes",
+          "exact_interval",
+          "daily_fields",
+          "csv_escape",
+          "write_csv_lines",
+          "parse_timestamp",
+          "parse_timestamps",
+          "timestamp_text",
+          "floor_to_bucket",
+          "json_scalar",
+          "numeric_value_from_record",
+          "value_json_from_record",
+          "scalar_text",
+          "table_character_column",
+          "scalar_numeric",
+          "table_numeric_column",
+          "aggregation_for",
+          "daily_rows_for_user",
+          "empty_records_table",
+          "records_for_user_fast_daily",
+          "records_for_user",
+          "write_daily_chunk",
+          "format_duration",
+          "progress_line",
+          "batch_range_text",
+          "transform_user_for_export"
+        ),
+        envir = environment()
+      )
+    }
     batch_results <- batch_results[order(vapply(batch_results, function(result) result$index, integer(1)))]
 
     for (result in batch_results) {
