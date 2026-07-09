@@ -174,6 +174,7 @@ add_personal_id_from_map <- function(health, personal_id_map_path, health_person
   require_col(id_map, "personalId", "personal ID map")
   id_map <- unique(id_map[, .(subject_id, personalId)])
   health <- merge(health, id_map, by = "subject_id", all.x = TRUE, sort = FALSE)
+  setnames(health, "subject_id", "source_subject_id")
   list(health = health, health_personal_id_col = "personalId")
 }
 
