@@ -109,6 +109,31 @@ optional_col <- function(data, col) {
   if (col %in% names(data)) col else NULL
 }
 
+resolve_named_col <- function(data, col, label) {
+  if (col %in% names(data)) {
+    return(col)
+  }
+
+  prefixed <- names(data)[startsWith(names(data), paste0(col, " "))]
+  if (length(prefixed) == 1L) {
+    return(prefixed[[1]])
+  }
+  if (length(prefixed) > 1L) {
+    stop(
+      sprintf(
+        "%s column '%s' matched multiple columns: %s",
+        label,
+        col,
+        paste(prefixed, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  require_col(data, col, label)
+  col
+}
+
 resolve_health_value_col <- function(data, requested_col) {
   if (!is.null(requested_col) && requested_col != "" && requested_col != "auto") {
     require_col(data, requested_col, "health records")
@@ -151,6 +176,11 @@ select_excel_or_named_col <- function(data, selector, label) {
     return(data[[selector]])
   }
 
+  if (!is_excel_column_ref(selector)) {
+    resolved <- resolve_named_col(data, selector, label)
+    return(data[[resolved]])
+  }
+
   if (is_excel_column_ref(selector)) {
     index <- excel_column_index(selector)
     if (index > ncol(data)) {
@@ -168,8 +198,8 @@ select_excel_or_named_col <- function(data, selector, label) {
     return(data[[index]])
   }
 
-  require_col(data, selector, label)
-  data[[selector]]
+  resolved <- resolve_named_col(data, selector, label)
+  data[[resolved]]
 }
 
 normalize_personal_id <- function(value) {
@@ -320,10 +350,13 @@ read_clinical_table <- function(
   }
 
   clinical <- fread(path)
-  require_col(clinical, clinical_key_col, "clinical data")
-  require_col(clinical, heartattack_date_col, "clinical data")
+  clinical_key_col <- resolve_named_col(clinical, clinical_key_col, "clinical data")
+  heartattack_date_col <- resolve_named_col(clinical, heartattack_date_col, "clinical data")
 
   type_col <- optional_col(clinical, heartattack_type_col)
+  if (is.null(type_col) && !is_excel_column_ref(heartattack_type_col)) {
+    type_col <- resolve_named_col(clinical, heartattack_type_col, "clinical data")
+  }
   if (is.null(type_col)) {
     clinical[
       ,
