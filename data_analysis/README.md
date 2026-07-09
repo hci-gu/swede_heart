@@ -2,6 +2,57 @@
 
 R scripts for building analysis-ready datasets inside the secure vault.
 
+## 0. Build Full Export On The Analysis Server
+
+Preferred handoff workflow:
+
+1. Upload or sync the raw download directory to the secure analysis server.
+2. Run the full export in R on that server, where the key and clinical files live.
+
+```bash
+Rscript data_analysis/scripts/00_build_full_export.R \
+  --raw-data-dir /path/to/raw-download \
+  --output-dir /path/to/full_export \
+  --keys /path/to/pnrkey_DAT-1261.xlsx \
+  --clinical /path/to/health_information.xlsx \
+  --window-before 365 \
+  --window-after 365
+```
+
+Main outputs:
+
+```text
+raw/health_records.csv.gz
+derived/daily_health_records.csv.gz
+export_logs/daily_health_records_transform/daily_health_records.csv
+keys_sensitive_separate/personal_id_map.csv
+derived/clinical_alignment/subject_index.csv
+derived/clinical_alignment/health_records_aligned.csv
+derived/clinical_alignment/daily_features_aligned.csv
+manifest.json
+checksums.md5
+```
+
+Clinical alignment also extracts `has_received_physiotherapy` from sheet
+`Physio`. By default, columns `E`, `F`, and `G` are checked; `Ja` in any of
+those columns means `TRUE`, `Nej` means `FALSE`, and missing/no matching value
+stays missing. The Physio sheet is joined with the same key as
+`--clinical-key-col` unless `--clinical-physio-key-col` is provided.
+
+Clinical alignment derives demographics from `personalId`:
+
+- `birth_date` is parsed from the first eight digits, `YYYYMMDD`.
+- `gender` uses the Swedish personal identity number convention where the
+  third digit after the hyphen is odd for `male` and even for `female`.
+- `age` is age in completed years at `heartattack_date`.
+
+Dependencies:
+
+- `data.table`
+- `jsonlite`
+- `readxl` if key or clinical files are Excel. If `readxl` is unavailable,
+  provide those files as CSV instead.
+
 ## 1. Build Aligned Dataset
 
 Script:
@@ -48,6 +99,8 @@ main_plot_type: "line"   # "line" or "boxplot"
 ```
 
 `subject_index.csv` has one row per person and defines the analysis cohort.
+It includes derived `birth_date`, `gender`, `age`, and
+`has_received_physiotherapy`.
 
 `health_records_aligned.csv` keeps one row per health record and adds:
 
@@ -99,6 +152,9 @@ summary features such as step sums and walking speed summaries.
 --clinical-sheet RiksHia
 --clinical-heartattack-date-col P
 --clinical-heartattack-type-col GJ
+--clinical-physio-sheet Physio
+--clinical-physio-key-col pseudo_PNR
+--clinical-physio-value-cols E,F,G
 --window-before 365
 --window-after 365
 ```

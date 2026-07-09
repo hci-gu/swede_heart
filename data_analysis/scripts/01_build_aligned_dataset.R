@@ -30,6 +30,9 @@ Optional:
   --clinical-sheet NAME                   default: RiksHia, Excel only
   --clinical-heartattack-date-col NAME    default: P
   --clinical-heartattack-type-col NAME    default: GJ
+  --clinical-physio-sheet NAME            default: Physio
+  --clinical-physio-key-col NAME          default: --clinical-key-col
+  --clinical-physio-value-cols COLS       default: E,F,G
   --window-before DAYS                    default: no lower bound
   --window-after DAYS                     default: no upper bound
   --help
@@ -52,6 +55,9 @@ parse_args <- function(args) {
     clinical_sheet = "RiksHia",
     clinical_heartattack_date_col = "P",
     clinical_heartattack_type_col = "GJ",
+    clinical_physio_sheet = "Physio",
+    clinical_physio_key_col = "",
+    clinical_physio_value_cols = "E,F,G",
     window_before = NA_integer_,
     window_after = NA_integer_
   )
@@ -183,6 +189,37 @@ is_valid_personal_id <- function(value) {
   !is.na(value) & grepl("^[0-9]{8}-[0-9]{4}$", value)
 }
 
+personal_id_birth_date <- function(personal_id) {
+  digits <- gsub("[^0-9]", "", as.character(personal_id))
+  birth_text <- fifelse(
+    !is.na(digits) & nchar(digits) >= 8,
+    paste0(substr(digits, 1, 4), "-", substr(digits, 5, 6), "-", substr(digits, 7, 8)),
+    NA_character_
+  )
+  as.IDate(birth_text)
+}
+
+personal_id_gender <- function(personal_id) {
+  digits <- gsub("[^0-9]", "", as.character(personal_id))
+  gender_digit <- suppressWarnings(as.integer(substr(digits, 11, 11)))
+  fifelse(
+    is.na(gender_digit),
+    NA_character_,
+    fifelse(gender_digit %% 2L == 1L, "male", "female")
+  )
+}
+
+age_at_date <- function(birth_date, reference_date) {
+  birth_date <- as.IDate(birth_date)
+  reference_date <- as.IDate(reference_date)
+  age <- as.integer(format(reference_date, "%Y")) - as.integer(format(birth_date, "%Y"))
+  had_birthday <- format(reference_date, "%m%d") >= format(birth_date, "%m%d")
+  needs_subtract <- !is.na(had_birthday) & !had_birthday
+  age[needs_subtract] <- age[needs_subtract] - 1L
+  age[is.na(birth_date) | is.na(reference_date)] <- NA_integer_
+  age
+}
+
 normalize_key <- function(value) {
   normalized <- trimws(as.character(value))
   normalized[normalized == ""] <- NA_character_
@@ -308,6 +345,113 @@ read_clinical_table <- function(
   }
 }
 
+split_column_selectors <- function(value) {
+  selectors <- trimws(strsplit(as.character(value), ",", fixed = TRUE)[[1]])
+  selectors[selectors != ""]
+}
+
+physio_value_to_flag <- function(value) {
+  normalized <- tolower(trimws(as.character(value)))
+  normalized[is.na(normalized)] <- ""
+  fifelse(
+    normalized == "ja",
+    TRUE,
+    fifelse(normalized == "nej", FALSE, NA)
+  )
+}
+
+read_physio_table <- function(
+  path,
+  clinical_sheet,
+  clinical_key_col,
+  physio_sheet,
+  physio_key_col,
+  physio_value_cols
+) {
+  extension <- tolower(tools::file_ext(path))
+  key_col <- physio_key_col
+  if (is.null(key_col) || is.na(key_col) || key_col == "") {
+    key_col <- clinical_key_col
+  }
+  value_cols <- split_column_selectors(physio_value_cols)
+  if (!length(value_cols)) {
+    stop("--clinical-physio-value-cols must include at least one column.", call. = FALSE)
+  }
+
+  if (extension %in% c("xlsx", "xls")) {
+    if (!requireNamespace("readxl", quietly = TRUE)) {
+      stop(
+        "Package 'readxl' is required to read Excel Physio sheets. ",
+        "Install it before running this script, or provide the clinical data as CSV.",
+        call. = FALSE
+      )
+    }
+
+    physio_raw <- as.data.table(suppressMessages(
+      readxl::read_excel(path, sheet = physio_sheet, col_names = TRUE)
+    ))
+  } else {
+    physio_raw <- fread(path)
+  }
+
+  physio <- data.table(
+    pseudo_PNR = normalize_key(select_excel_or_named_col(
+      physio_raw,
+      key_col,
+      "clinical physio key"
+    ))
+  )
+
+  for (index in seq_along(value_cols)) {
+    selector <- value_cols[[index]]
+    physio[
+      ,
+      paste0("physio_value_", index) := physio_value_to_flag(
+        select_excel_or_named_col(
+          physio_raw,
+          selector,
+          "clinical physio value"
+        )
+      )
+    ]
+  }
+
+  value_names <- paste0("physio_value_", seq_along(value_cols))
+  physio[
+    ,
+    has_received_physiotherapy := apply(
+      .SD,
+      1,
+      function(values) {
+        values <- as.logical(values)
+        if (any(values %in% TRUE, na.rm = TRUE)) {
+          TRUE
+        } else if (any(values %in% FALSE, na.rm = TRUE)) {
+          FALSE
+        } else {
+          NA
+        }
+      }
+    ),
+    .SDcols = value_names
+  ]
+
+  physio <- physio[
+    !is.na(pseudo_PNR),
+    .(
+      has_received_physiotherapy = if (any(has_received_physiotherapy %in% TRUE, na.rm = TRUE)) {
+        TRUE
+      } else if (any(has_received_physiotherapy %in% FALSE, na.rm = TRUE)) {
+        FALSE
+      } else {
+        NA
+      }
+    ),
+    by = "pseudo_PNR"
+  ]
+  physio
+}
+
 parse_days <- function(value, label) {
   if (is.null(value) || is.na(value) || value == "") {
     return(NA_integer_)
@@ -381,6 +525,14 @@ clinical <- read_clinical_table(
   args$clinical_heartattack_date_col,
   args$clinical_heartattack_type_col
 )
+physio <- read_physio_table(
+  args$clinical,
+  args$clinical_sheet,
+  args$clinical_key_col,
+  args$clinical_physio_sheet,
+  args$clinical_physio_key_col,
+  args$clinical_physio_value_cols
+)
 
 require_col(health, args$health_personal_id_col, "health records")
 require_col(health, "date", "health records")
@@ -408,8 +560,17 @@ setorderv(clinical_events, c("pseudo_PNR", "heartattack_date"))
 heartattack_events <- clinical_events[, .SD[1], by = "pseudo_PNR"]
 
 subject_index <- merge(keys, heartattack_events, by = "pseudo_PNR", all.x = TRUE)
+subject_index <- merge(subject_index, physio, by = "pseudo_PNR", all.x = TRUE)
 setorder(subject_index, personalId)
 subject_index[, subject_id := sprintf("S%06d", .I)]
+subject_index[
+  ,
+  `:=`(
+    birth_date = personal_id_birth_date(personalId),
+    gender = personal_id_gender(personalId)
+  )
+]
+subject_index[, age := age_at_date(birth_date, heartattack_date)]
 subject_index[
   ,
   `:=`(
@@ -437,8 +598,12 @@ subject_index <- subject_index[
     subject_id,
     personalId,
     pseudo_PNR,
+    birth_date,
+    gender,
+    age,
     heartattack_date,
     heartattack_type,
+    has_received_physiotherapy,
     heartattack_source,
     include_reason,
     exclude_reason
@@ -450,7 +615,19 @@ included_subjects <- subject_index[!is.na(heartattack_date)]
 health[, record_date := to_idate(date, "health record date")]
 aligned <- merge(
   health,
-  included_subjects[, .(subject_id, personalId, heartattack_date, heartattack_type)],
+  included_subjects[
+    ,
+    .(
+      subject_id,
+      personalId,
+      birth_date,
+      gender,
+      age,
+      heartattack_date,
+      heartattack_type,
+      has_received_physiotherapy
+    )
+  ],
   by = "personalId",
   all = FALSE,
   allow.cartesian = FALSE
@@ -469,15 +646,23 @@ setcolorder(
   c(
     "subject_id",
     "personalId",
+    "birth_date",
+    "gender",
+    "age",
     "heartattack_date",
     "heartattack_type",
+    "has_received_physiotherapy",
     "record_date",
     "relative_day",
     setdiff(names(aligned), c(
       "subject_id",
       "personalId",
+      "birth_date",
+      "gender",
+      "age",
       "heartattack_date",
       "heartattack_type",
+      "has_received_physiotherapy",
       "record_date",
       "relative_day"
     ))
@@ -544,7 +729,19 @@ daily_features <- Reduce(
 )
 
 daily_features <- merge(
-  included_subjects[, .(subject_id, personalId, heartattack_date, heartattack_type)],
+  included_subjects[
+    ,
+    .(
+      subject_id,
+      personalId,
+      birth_date,
+      gender,
+      age,
+      heartattack_date,
+      heartattack_type,
+      has_received_physiotherapy
+    )
+  ],
   daily_features,
   by = "subject_id",
   all.y = TRUE
