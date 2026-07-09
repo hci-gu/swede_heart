@@ -18,7 +18,8 @@ Rscript data_analysis/scripts/00_build_full_export.R \
   --window-before 365 \
   --window-after 365 \
   --skip-raw-health-records true \
-  --skip-daily-health-records-gz true
+  --skip-daily-health-records-gz true \
+  --workers 12
 ```
 
 Main outputs:
@@ -39,6 +40,10 @@ the goal is only the aligned analysis outputs. This omits
 writing a compressed duplicate of the daily alignment input. Leave those false
 if you also need one tidy row per raw health record and a compressed daily
 handoff file.
+
+`--workers` parallelizes the per-user raw JSON to daily-record transform. It is
+available for aligned-output runs where both `--skip-raw-health-records true`
+and `--skip-daily-health-records-gz true` are set.
 
 Clinical alignment also extracts `has_received_physiotherapy` from sheet
 `Physio`. By default, columns `E`, `F`, and `G` are checked; `Ja` in any of

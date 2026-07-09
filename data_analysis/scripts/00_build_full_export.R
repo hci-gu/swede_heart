@@ -32,6 +32,7 @@ Optional:
   --skip-raw-health-records true|false Default: false. Omit raw/health_records.csv.gz and skip raw-only serialization.
   --skip-daily-health-records-gz true|false
                                        Default: false. Omit derived/daily_health_records.csv.gz.
+  --workers N                          Default: 1. Parallel user transforms for aligned-only exports.
   --bucket-minutes N                   Default: 10.
   --exact-interval true|false          Default: false.
   --gzip-level N                       Default: 1. Use 6 for smaller files, slower writes.
@@ -72,6 +73,7 @@ parse_args <- function(args) {
     include_personal_id_in_main = "false",
     skip_raw_health_records = "false",
     skip_daily_health_records_gz = "false",
+    workers = "1",
     bucket_minutes = "10",
     exact_interval = "false",
     gzip_level = "1",
@@ -616,6 +618,85 @@ records_for_user <- function(path, subject_id, personal_id, source_file, include
   rows
 }
 
+write_daily_chunk <- function(path, daily, daily_fields) {
+  if (nrow(daily)) {
+    setcolorder(daily, daily_fields)
+    fwrite(daily, path, col.names = FALSE, na = "")
+  } else {
+    file.create(path)
+  }
+  path
+}
+
+append_file_binary <- function(source_path, target_con, chunk_size = 1024L * 1024L) {
+  if (!file.exists(source_path) || file.info(source_path)$size == 0) {
+    return(invisible(NULL))
+  }
+  source_con <- file(source_path, open = "rb")
+  on.exit(close(source_con), add = TRUE)
+  repeat {
+    bytes <- readBin(source_con, what = "raw", n = chunk_size)
+    if (!length(bytes)) {
+      break
+    }
+    writeBin(bytes, target_con, useBytes = TRUE)
+  }
+  invisible(NULL)
+}
+
+merge_named_counts <- function(target, counts) {
+  if (!length(counts)) {
+    return(target)
+  }
+  for (name in names(counts)) {
+    current_count <- target[[name]]
+    if (is.null(current_count)) {
+      current_count <- 0L
+    }
+    target[[name]] <- current_count + counts[[name]]
+  }
+  target
+}
+
+transform_user_for_export <- function(i, chunk_dir = NULL) {
+  path <- user_files[[i]]
+  personal_id <- personal_ids[[i]]
+  subject_id <- subject_map[[personal_id]]
+  source_file <- file.path("users", basename(path))
+  rows <- records_for_user(
+    path,
+    subject_id,
+    personal_id,
+    source_file,
+    include_personal_id,
+    include_raw_columns = !skip_raw_health_records
+  )
+
+  user_type_counts <- rows[data_type != "", .N, by = data_type]
+  daily <- daily_rows_for_user(rows, bucket_minutes, exact_interval)
+  if (include_personal_id && nrow(daily)) {
+    daily[, personalId := personal_id]
+  }
+
+  chunk_path <- NULL
+  if (!is.null(chunk_dir)) {
+    chunk_path <- file.path(chunk_dir, sprintf("%06d_daily.csv", i))
+    write_daily_chunk(chunk_path, daily, daily_fields)
+  }
+
+  list(
+    index = i,
+    subject_id = subject_id,
+    source_file = source_file,
+    rawRecords = nrow(rows),
+    numericRecords = rows[!is.na(numeric_value), .N],
+    dailyRows = nrow(daily),
+    dataTypes = as.list(setNames(user_type_counts$N, user_type_counts$data_type)),
+    daily = if (is.null(chunk_dir)) daily else NULL,
+    dailyChunk = chunk_path
+  )
+}
+
 write_manifest <- function(path, manifest) {
   jsonlite::write_json(
     manifest,
@@ -712,6 +793,7 @@ if (dir.exists(output_dir) && length(list.files(output_dir, all.files = TRUE, no
   stop(sprintf("Output directory is not empty: %s", output_dir), call. = FALSE)
 }
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+output_dir <- normalizePath(output_dir, mustWork = TRUE)
 
 for (directory in c("raw", "derived", "metadata", "keys_sensitive_separate", "export_logs")) {
   dir.create(file.path(output_dir, directory), recursive = TRUE, showWarnings = FALSE)
@@ -720,6 +802,10 @@ for (directory in c("raw", "derived", "metadata", "keys_sensitive_separate", "ex
 include_personal_id <- as_flag(args$include_personal_id_in_main, default = FALSE)
 skip_raw_health_records <- as_flag(args$skip_raw_health_records, default = FALSE)
 skip_daily_health_records_gz <- as_flag(args$skip_daily_health_records_gz, default = FALSE)
+workers <- as.integer(args$workers)
+if (is.na(workers) || workers < 1) {
+  stop("--workers must be a positive integer.", call. = FALSE)
+}
 bucket_minutes <- as.integer(args$bucket_minutes)
 if (is.na(bucket_minutes) || bucket_minutes < 1 || 60 %% bucket_minutes != 0) {
   stop("--bucket-minutes must be a positive divisor of 60.", call. = FALSE)
@@ -737,6 +823,13 @@ skip_alignment <- as_flag(
 user_files <- sort(list.files(users_dir, pattern = "\\.json$", full.names = TRUE))
 if (!length(user_files)) {
   stop(sprintf("No user JSON files found in %s", users_dir), call. = FALSE)
+}
+workers <- min(workers, length(user_files))
+if (workers > 1 && !skip_raw_health_records) {
+  stop("--workers > 1 currently requires --skip-raw-health-records true.", call. = FALSE)
+}
+if (workers > 1 && !skip_daily_health_records_gz) {
+  stop("--workers > 1 currently requires --skip-daily-health-records-gz true.", call. = FALSE)
 }
 personal_ids <- tools::file_path_sans_ext(basename(user_files))
 subject_ids <- sprintf("S%06d", seq_along(personal_ids))
@@ -787,103 +880,184 @@ daily_plain_dir <- file.path(output_dir, "export_logs", "daily_health_records_tr
 dir.create(daily_plain_dir, recursive = TRUE, showWarnings = FALSE)
 daily_plain_path <- file.path(daily_plain_dir, "daily_health_records.csv")
 
-raw_con <- NULL
-if (!skip_raw_health_records) {
-  raw_con <- gzfile(raw_path, open = "wt", encoding = "UTF-8", compression = gzip_level)
-}
-daily_gz_con <- NULL
-if (!skip_daily_health_records_gz) {
-  daily_gz_con <- gzfile(daily_gz_path, open = "wt", encoding = "UTF-8", compression = gzip_level)
-}
-daily_plain_con <- file(daily_plain_path, open = "wt", encoding = "UTF-8")
-on.exit({
-  if (!is.null(raw_con)) {
-    try(close(raw_con), silent = TRUE)
-  }
-  if (!is.null(daily_gz_con)) {
-    try(close(daily_gz_con), silent = TRUE)
-  }
-  try(close(daily_plain_con), silent = TRUE)
-}, add = TRUE)
-
-if (!skip_raw_health_records) {
-  writeLines(paste(raw_fields, collapse = ","), raw_con, useBytes = TRUE)
-}
-if (!skip_daily_health_records_gz) {
-  writeLines(paste(daily_fields, collapse = ","), daily_gz_con, useBytes = TRUE)
-}
-writeLines(paste(daily_fields, collapse = ","), daily_plain_con, useBytes = TRUE)
-
 manifest_users <- vector("list", length(user_files))
 data_type_counts <- list()
 raw_records_total <- 0L
 numeric_records_total <- 0L
 daily_rows_total <- 0L
 
-for (i in seq_along(user_files)) {
-  path <- user_files[[i]]
-  personal_id <- personal_ids[[i]]
-  subject_id <- subject_map[[personal_id]]
-  source_file <- file.path("users", basename(path))
-  cat(sprintf("[%d/%d] Transforming %s\n", i, length(user_files), basename(path)))
-  rows <- records_for_user(
-    path,
-    subject_id,
-    personal_id,
-    source_file,
-    include_personal_id,
-    include_raw_columns = !skip_raw_health_records
-  )
-  raw_records_total <- raw_records_total + nrow(rows)
-  numeric_records_total <- numeric_records_total + rows[!is.na(numeric_value), .N]
+if (workers > 1) {
+  chunk_dir <- file.path(daily_plain_dir, "chunks")
+  dir.create(chunk_dir, recursive = TRUE, showWarnings = FALSE)
+  cat(sprintf(
+    "Transforming %d users with %d worker processes\n",
+    length(user_files),
+    workers
+  ))
 
-  user_type_counts <- rows[data_type != "", .N, by = data_type]
-  if (nrow(user_type_counts)) {
-    for (row_index in seq_len(nrow(user_type_counts))) {
-      name <- user_type_counts$data_type[[row_index]]
-      current_count <- data_type_counts[[name]]
-      if (is.null(current_count)) {
-        current_count <- 0L
-      }
-      data_type_counts[[name]] <- current_count + user_type_counts$N[[row_index]]
-    }
+  cluster <- parallel::makeCluster(workers)
+  on.exit({
+    try(parallel::stopCluster(cluster), silent = TRUE)
+  }, add = TRUE)
+  parallel::clusterEvalQ(cluster, {
+    library(data.table)
+    NULL
+  })
+  parallel::clusterExport(
+    cluster,
+    varlist = c(
+      "user_files",
+      "personal_ids",
+      "subject_map",
+      "include_personal_id",
+      "skip_raw_health_records",
+      "bucket_minutes",
+      "exact_interval",
+      "daily_fields",
+      "csv_escape",
+      "write_csv_lines",
+      "parse_timestamp",
+      "parse_timestamps",
+      "timestamp_text",
+      "floor_to_bucket",
+      "json_scalar",
+      "numeric_value_from_record",
+      "value_json_from_record",
+      "scalar_text",
+      "table_character_column",
+      "scalar_numeric",
+      "table_numeric_column",
+      "aggregation_for",
+      "daily_rows_for_user",
+      "empty_records_table",
+      "records_for_user_fast_daily",
+      "records_for_user",
+      "write_daily_chunk",
+      "transform_user_for_export"
+    ),
+    envir = environment()
+  )
+
+  results <- parallel::parLapplyLB(
+    cluster,
+    seq_along(user_files),
+    transform_user_for_export,
+    chunk_dir = chunk_dir
+  )
+  parallel::stopCluster(cluster)
+  on.exit(NULL, add = FALSE)
+  results <- results[order(vapply(results, function(result) result$index, integer(1)))]
+
+  daily_plain_con <- file(daily_plain_path, open = "wb")
+  on.exit(try(close(daily_plain_con), silent = TRUE), add = TRUE)
+  writeBin(charToRaw(paste0(paste(daily_fields, collapse = ","), "\n")), daily_plain_con)
+
+  for (result in results) {
+    append_file_binary(result$dailyChunk, daily_plain_con)
+    raw_records_total <- raw_records_total + result$rawRecords
+    numeric_records_total <- numeric_records_total + result$numericRecords
+    daily_rows_total <- daily_rows_total + result$dailyRows
+    data_type_counts <- merge_named_counts(data_type_counts, result$dataTypes)
+    manifest_users[[result$index]] <- list(
+      subject_id = result$subject_id,
+      source_file = result$source_file,
+      rawRecords = result$rawRecords,
+      numericRecords = result$numericRecords,
+      dailyRows = result$dailyRows,
+      dataTypes = result$dataTypes
+    )
   }
+
+  close(daily_plain_con)
+  on.exit(NULL, add = FALSE)
+  unlink(chunk_dir, recursive = TRUE)
+} else {
+  raw_con <- NULL
+  if (!skip_raw_health_records) {
+    raw_con <- gzfile(raw_path, open = "wt", encoding = "UTF-8", compression = gzip_level)
+  }
+  daily_gz_con <- NULL
+  if (!skip_daily_health_records_gz) {
+    daily_gz_con <- gzfile(daily_gz_path, open = "wt", encoding = "UTF-8", compression = gzip_level)
+  }
+  daily_plain_con <- file(daily_plain_path, open = "wt", encoding = "UTF-8")
+  on.exit({
+    if (!is.null(raw_con)) {
+      try(close(raw_con), silent = TRUE)
+    }
+    if (!is.null(daily_gz_con)) {
+      try(close(daily_gz_con), silent = TRUE)
+    }
+    try(close(daily_plain_con), silent = TRUE)
+  }, add = TRUE)
 
   if (!skip_raw_health_records) {
-    raw_output <- copy(rows)
-    raw_output[, (raw_internal_drop) := NULL]
-    write_csv_lines(raw_con, raw_output, raw_fields)
-  }
-
-  daily <- daily_rows_for_user(rows, bucket_minutes, exact_interval)
-  if (include_personal_id && nrow(daily)) {
-    daily[, personalId := personal_id]
-    setcolorder(daily, daily_fields)
+    writeLines(paste(raw_fields, collapse = ","), raw_con, useBytes = TRUE)
   }
   if (!skip_daily_health_records_gz) {
-    write_csv_lines(daily_gz_con, daily, daily_fields)
+    writeLines(paste(daily_fields, collapse = ","), daily_gz_con, useBytes = TRUE)
   }
-  write_csv_lines(daily_plain_con, daily, daily_fields)
-  daily_rows_total <- daily_rows_total + nrow(daily)
+  writeLines(paste(daily_fields, collapse = ","), daily_plain_con, useBytes = TRUE)
 
-  manifest_users[[i]] <- list(
-    subject_id = subject_id,
-    source_file = source_file,
-    rawRecords = nrow(rows),
-    numericRecords = rows[!is.na(numeric_value), .N],
-    dailyRows = nrow(daily),
-    dataTypes = as.list(setNames(user_type_counts$N, user_type_counts$data_type))
-  )
-}
+  for (i in seq_along(user_files)) {
+    path <- user_files[[i]]
+    personal_id <- personal_ids[[i]]
+    subject_id <- subject_map[[personal_id]]
+    source_file <- file.path("users", basename(path))
+    cat(sprintf("[%d/%d] Transforming %s\n", i, length(user_files), basename(path)))
+    rows <- records_for_user(
+      path,
+      subject_id,
+      personal_id,
+      source_file,
+      include_personal_id,
+      include_raw_columns = !skip_raw_health_records
+    )
+    raw_records_total <- raw_records_total + nrow(rows)
+    numeric_records_total <- numeric_records_total + rows[!is.na(numeric_value), .N]
 
-if (!is.null(raw_con)) {
-  close(raw_con)
+    user_type_counts <- rows[data_type != "", .N, by = data_type]
+    data_type_counts <- merge_named_counts(
+      data_type_counts,
+      as.list(setNames(user_type_counts$N, user_type_counts$data_type))
+    )
+
+    if (!skip_raw_health_records) {
+      raw_output <- copy(rows)
+      raw_output[, (raw_internal_drop) := NULL]
+      write_csv_lines(raw_con, raw_output, raw_fields)
+    }
+
+    daily <- daily_rows_for_user(rows, bucket_minutes, exact_interval)
+    if (include_personal_id && nrow(daily)) {
+      daily[, personalId := personal_id]
+      setcolorder(daily, daily_fields)
+    }
+    if (!skip_daily_health_records_gz) {
+      write_csv_lines(daily_gz_con, daily, daily_fields)
+    }
+    write_csv_lines(daily_plain_con, daily, daily_fields)
+    daily_rows_total <- daily_rows_total + nrow(daily)
+
+    manifest_users[[i]] <- list(
+      subject_id = subject_id,
+      source_file = source_file,
+      rawRecords = nrow(rows),
+      numericRecords = rows[!is.na(numeric_value), .N],
+      dailyRows = nrow(daily),
+      dataTypes = as.list(setNames(user_type_counts$N, user_type_counts$data_type))
+    )
+  }
+
+  if (!is.null(raw_con)) {
+    close(raw_con)
+  }
+  if (!is.null(daily_gz_con)) {
+    close(daily_gz_con)
+  }
+  close(daily_plain_con)
+  on.exit(NULL, add = FALSE)
 }
-if (!is.null(daily_gz_con)) {
-  close(daily_gz_con)
-}
-close(daily_plain_con)
-on.exit(NULL, add = FALSE)
 
 alignment_summary <- NULL
 if (!skip_alignment) {
@@ -898,6 +1072,7 @@ manifest <- list(
   includePersonalIdInMain = include_personal_id,
   skipRawHealthRecords = skip_raw_health_records,
   skipDailyHealthRecordsGz = skip_daily_health_records_gz,
+  workers = workers,
   gzipLevel = gzip_level,
   dedupeMode = if (exact_interval) "exact_interval" else "date_from_bucket",
   bucketMinutes = if (exact_interval) NULL else bucket_minutes,
