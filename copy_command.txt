@@ -1,0 +1,1 @@
+Rscript data_analysis/scripts/00_build_full_export.R --raw-data-dir ../20260611T100446Z --output-dir ../full_export_20260709 --keys ../pnrkey_DAT-1261.xlsx --clinical ../shtdata_DAT-1261.xlsx --window-before 365 --window-after 365
