@@ -193,19 +193,21 @@ parse_timestamp <- function(value) {
 }
 
 timestamp_text <- function(value) {
-  if (is.na(value)) {
-    return("")
-  }
-  format(value, "%Y-%m-%dT%H:%M:%S", tz = "UTC")
+  formatted <- format(value, "%Y-%m-%dT%H:%M:%S", tz = "UTC")
+  formatted[is.na(value)] <- ""
+  unname(formatted)
 }
 
 floor_to_bucket <- function(timestamp, bucket_minutes) {
-  if (is.na(timestamp)) {
-    return(timestamp)
-  }
   seconds <- as.numeric(timestamp)
   bucket_seconds <- bucket_minutes * 60
-  as.POSIXct(floor(seconds / bucket_seconds) * bucket_seconds, origin = "1970-01-01", tz = "UTC")
+  bucketed <- as.POSIXct(
+    floor(seconds / bucket_seconds) * bucket_seconds,
+    origin = "1970-01-01",
+    tz = "UTC"
+  )
+  bucketed[is.na(timestamp)] <- as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC")
+  bucketed
 }
 
 json_scalar <- function(record, name) {
