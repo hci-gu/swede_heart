@@ -658,6 +658,40 @@ merge_named_counts <- function(target, counts) {
   target
 }
 
+format_duration <- function(seconds) {
+  if (!is.finite(seconds) || is.na(seconds)) {
+    return("unknown")
+  }
+  seconds <- max(0, as.integer(round(seconds)))
+  hours <- seconds %/% 3600L
+  minutes <- (seconds %% 3600L) %/% 60L
+  secs <- seconds %% 60L
+  if (hours > 0L) {
+    return(sprintf("%dh %02dm %02ds", hours, minutes, secs))
+  }
+  if (minutes > 0L) {
+    return(sprintf("%dm %02ds", minutes, secs))
+  }
+  sprintf("%ds", secs)
+}
+
+progress_line <- function(completed, total, started_at, raw_records, numeric_records, daily_rows) {
+  elapsed <- as.numeric(difftime(Sys.time(), started_at, units = "secs"))
+  rate <- completed / max(elapsed, 1e-9)
+  remaining <- if (rate > 0) (total - completed) / rate else NA_real_
+  sprintf(
+    "[%d/%d] %.1f%% complete; elapsed %s; ETA %s; raw records: %d; numeric records: %d; daily rows: %d\n",
+    completed,
+    total,
+    100 * completed / total,
+    format_duration(elapsed),
+    format_duration(remaining),
+    raw_records,
+    numeric_records,
+    daily_rows
+  )
+}
+
 transform_user_for_export <- function(i, chunk_dir = NULL) {
   path <- user_files[[i]]
   personal_id <- personal_ids[[i]]
@@ -933,41 +967,64 @@ if (workers > 1) {
       "records_for_user_fast_daily",
       "records_for_user",
       "write_daily_chunk",
+      "format_duration",
+      "progress_line",
       "transform_user_for_export"
     ),
     envir = environment()
   )
 
-  results <- parallel::parLapplyLB(
-    cluster,
-    seq_along(user_files),
-    transform_user_for_export,
-    chunk_dir = chunk_dir
-  )
-  parallel::stopCluster(cluster)
-  on.exit(NULL, add = FALSE)
-  results <- results[order(vapply(results, function(result) result$index, integer(1)))]
-
   daily_plain_con <- file(daily_plain_path, open = "wb")
   on.exit(try(close(daily_plain_con), silent = TRUE), add = TRUE)
   writeBin(charToRaw(paste0(paste(daily_fields, collapse = ","), "\n")), daily_plain_con)
 
-  for (result in results) {
-    append_file_binary(result$dailyChunk, daily_plain_con)
-    raw_records_total <- raw_records_total + result$rawRecords
-    numeric_records_total <- numeric_records_total + result$numericRecords
-    daily_rows_total <- daily_rows_total + result$dailyRows
-    data_type_counts <- merge_named_counts(data_type_counts, result$dataTypes)
-    manifest_users[[result$index]] <- list(
-      subject_id = result$subject_id,
-      source_file = result$source_file,
-      rawRecords = result$rawRecords,
-      numericRecords = result$numericRecords,
-      dailyRows = result$dailyRows,
-      dataTypes = result$dataTypes
+  started_at <- Sys.time()
+  completed_users <- 0L
+  user_indices <- seq_along(user_files)
+  batch_size <- workers * 4L
+  batches <- split(user_indices, ceiling(seq_along(user_indices) / batch_size))
+  cat(sprintf("Progress updates every up to %d users\n", batch_size))
+  flush.console()
+
+  for (batch in batches) {
+    batch_results <- parallel::parLapplyLB(
+      cluster,
+      batch,
+      transform_user_for_export,
+      chunk_dir = chunk_dir
     )
+    batch_results <- batch_results[order(vapply(batch_results, function(result) result$index, integer(1)))]
+
+    for (result in batch_results) {
+      append_file_binary(result$dailyChunk, daily_plain_con)
+      raw_records_total <- raw_records_total + result$rawRecords
+      numeric_records_total <- numeric_records_total + result$numericRecords
+      daily_rows_total <- daily_rows_total + result$dailyRows
+      data_type_counts <- merge_named_counts(data_type_counts, result$dataTypes)
+      manifest_users[[result$index]] <- list(
+        subject_id = result$subject_id,
+        source_file = result$source_file,
+        rawRecords = result$rawRecords,
+        numericRecords = result$numericRecords,
+        dailyRows = result$dailyRows,
+        dataTypes = result$dataTypes
+      )
+      unlink(result$dailyChunk)
+    }
+
+    completed_users <- completed_users + length(batch_results)
+    cat(progress_line(
+      completed_users,
+      length(user_files),
+      started_at,
+      raw_records_total,
+      numeric_records_total,
+      daily_rows_total
+    ))
+    flush.console()
   }
 
+  parallel::stopCluster(cluster)
   close(daily_plain_con)
   on.exit(NULL, add = FALSE)
   unlink(chunk_dir, recursive = TRUE)
@@ -1061,7 +1118,11 @@ if (workers > 1) {
 
 alignment_summary <- NULL
 if (!skip_alignment) {
+  cat("Running clinical alignment\n")
+  flush.console()
   alignment_summary <- run_alignment(args, output_dir, daily_plain_path)
+  cat("Clinical alignment complete\n")
+  flush.console()
 }
 
 manifest <- list(
