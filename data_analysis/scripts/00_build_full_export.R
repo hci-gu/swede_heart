@@ -29,8 +29,12 @@ Optional:
   --skip-alignment true|false          Default: false when keys+clinical are set, otherwise true.
   --include-personal-id-in-main true|false
                                        Default: false. Keep direct identifiers only in keys_sensitive_separate/.
+  --skip-raw-health-records true|false Default: false. Omit raw/health_records.csv.gz and skip raw-only serialization.
+  --skip-daily-health-records-gz true|false
+                                       Default: false. Omit derived/daily_health_records.csv.gz.
   --bucket-minutes N                   Default: 10.
   --exact-interval true|false          Default: false.
+  --gzip-level N                       Default: 1. Use 6 for smaller files, slower writes.
   --clinical-sheet NAME                Default: RiksHia.
   --clinical-key-col NAME              Default: pseudo_PNR.
   --clinical-heartattack-date-col NAME Default: P.
@@ -44,8 +48,8 @@ Optional:
   --help
 
 Main outputs:
-  raw/health_records.csv.gz
-  derived/daily_health_records.csv.gz
+  raw/health_records.csv.gz, unless --skip-raw-health-records true
+  derived/daily_health_records.csv.gz, unless --skip-daily-health-records-gz true
   export_logs/daily_health_records_transform/daily_health_records.csv
   keys_sensitive_separate/personal_id_map.csv
   manifest.json
@@ -66,8 +70,11 @@ parse_args <- function(args) {
     clinical = NULL,
     skip_alignment = NULL,
     include_personal_id_in_main = "false",
+    skip_raw_health_records = "false",
+    skip_daily_health_records_gz = "false",
     bucket_minutes = "10",
     exact_interval = "false",
+    gzip_level = "1",
     clinical_sheet = "RiksHia",
     clinical_key_col = "pseudo_PNR",
     clinical_heartattack_date_col = "P",
@@ -175,21 +182,33 @@ write_csv_lines <- function(con, rows, fields) {
 }
 
 parse_timestamp <- function(value) {
-  if (is.null(value) || is.na(value) || value == "") {
+  parsed <- parse_timestamps(value)
+  if (!length(parsed)) {
     return(as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC"))
   }
-  text <- sub("Z$", "", as.character(value))
+  parsed[[1]]
+}
+
+parse_timestamps <- function(value) {
+  if (is.null(value)) {
+    return(as.POSIXct(character(), tz = "UTC"))
+  }
+  text <- as.character(value)
+  missing <- is.na(value) | text == ""
+  text[missing] <- NA_character_
+  text <- sub("Z$", "", text)
   text <- sub("([+-][0-9]{2}):([0-9]{2})$", "\\1\\2", text)
-  parsed <- as.POSIXct(
-    text,
-    tz = "UTC",
-    tryFormats = c(
-      "%Y-%m-%dT%H:%M:%OS%z",
-      "%Y-%m-%dT%H:%M:%OS",
-      "%Y-%m-%d %H:%M:%OS"
+  suppressWarnings(
+    as.POSIXct(
+      text,
+      tz = "UTC",
+      tryFormats = c(
+        "%Y-%m-%dT%H:%M:%OS%z",
+        "%Y-%m-%dT%H:%M:%OS",
+        "%Y-%m-%d %H:%M:%OS"
+      )
     )
   )
-  parsed
 }
 
 timestamp_text <- function(value) {
@@ -328,12 +347,8 @@ daily_rows_for_user <- function(raw_rows, bucket_minutes, exact_interval) {
   daily
 }
 
-records_for_user <- function(path, subject_id, personal_id, source_file, include_personal_id) {
-  records <- jsonlite::fromJSON(path, simplifyVector = FALSE)
-  if (!is.list(records)) {
-    stop(sprintf("Expected %s to contain a JSON array.", path), call. = FALSE)
-  }
-  if (!length(records)) {
+empty_records_table <- function(include_personal_id, include_raw_columns) {
+  if (include_raw_columns) {
     fields <- c(
       "subject_id",
       "record_id",
@@ -353,79 +368,135 @@ records_for_user <- function(path, subject_id, personal_id, source_file, include
       "parsed_date_from",
       "parsed_date_to"
     )
-    if (include_personal_id) {
-      fields <- c(fields, "personalId")
-    }
-    empty <- data.table()
-    for (field in fields) {
-      empty[, (field) := character()]
-    }
-    empty[, numeric_value := numeric()]
+  } else {
+    fields <- c(
+      "subject_id",
+      "data_type",
+      "unit",
+      "numeric_value",
+      "date",
+      "parsed_date_from",
+      "parsed_date_to"
+    )
+  }
+  if (include_personal_id) {
+    fields <- c(fields, "personalId")
+  }
+  empty <- data.table()
+  for (field in fields) {
+    empty[, (field) := character()]
+  }
+  empty[, numeric_value := numeric()]
+  if (include_raw_columns) {
     empty[, record_index := integer()]
-    empty[, parsed_date_from := as.POSIXct(character(), tz = "UTC")]
-    empty[, parsed_date_to := as.POSIXct(character(), tz = "UTC")]
-    return(empty)
+  }
+  empty[, parsed_date_from := as.POSIXct(character(), tz = "UTC")]
+  empty[, parsed_date_to := as.POSIXct(character(), tz = "UTC")]
+  empty
+}
+
+records_for_user <- function(path, subject_id, personal_id, source_file, include_personal_id, include_raw_columns) {
+  records <- jsonlite::fromJSON(path, simplifyVector = FALSE)
+  if (!is.list(records)) {
+    stop(sprintf("Expected %s to contain a JSON array.", path), call. = FALSE)
+  }
+  record_count <- length(records)
+  if (!record_count) {
+    return(empty_records_table(include_personal_id, include_raw_columns))
   }
 
-  rows <- vector("list", length(records))
-  for (index in seq_along(records)) {
+  record_index <- seq_len(record_count)
+  data_type <- rep("", record_count)
+  unit <- rep("", record_count)
+  numeric_value <- rep(NA_real_, record_count)
+  date_from <- rep("", record_count)
+  date_to <- rep("", record_count)
+  date <- rep("", record_count)
+  if (include_raw_columns) {
+    value_json <- rep("", record_count)
+    platform_type <- rep("", record_count)
+    device_id <- rep("", record_count)
+    source_id <- rep("", record_count)
+    source_name <- rep("", record_count)
+  }
+
+  for (index in record_index) {
     record <- records[[index]]
     if (!is.list(record)) {
-      date_from <- ""
-      date_to <- ""
-      parsed_date_from <- as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC")
-      parsed_date_to <- as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC")
-      row <- list(
-        subject_id = subject_id,
-        record_id = sprintf("%s:%08d", subject_id, index),
-        record_index = index,
-        data_type = "",
-        unit = "",
-        numeric_value = NA_real_,
-        value_json = jsonlite::toJSON(record, auto_unbox = TRUE, null = "null", digits = NA),
-        date_from = date_from,
-        date_to = date_to,
-        date = "",
-        platform_type = "",
-        device_id = "",
-        source_id = "",
-        source_name = "",
-        source_file = source_file,
-        parsed_date_from = parsed_date_from,
-        parsed_date_to = parsed_date_to
-      )
+      if (include_raw_columns) {
+        value_json[[index]] <- jsonlite::toJSON(record, auto_unbox = TRUE, null = "null", digits = NA)
+      }
     } else {
-      date_from <- json_scalar(record, "date_from")
-      date_to <- json_scalar(record, "date_to")
-      parsed_date_from <- parse_timestamp(date_from)
-      parsed_date_to <- parse_timestamp(date_to)
-      row <- list(
-        subject_id = subject_id,
-        record_id = sprintf("%s:%08d", subject_id, index),
-        record_index = index,
-        data_type = json_scalar(record, "data_type"),
-        unit = json_scalar(record, "unit"),
-        numeric_value = numeric_value_from_record(record),
-        value_json = value_json_from_record(record),
-        date_from = date_from,
-        date_to = date_to,
-        date = if (nchar(date_from) >= 10) substr(date_from, 1, 10) else "",
-        platform_type = json_scalar(record, "platform_type"),
-        device_id = json_scalar(record, "device_id"),
-        source_id = json_scalar(record, "source_id"),
-        source_name = json_scalar(record, "source_name"),
-        source_file = source_file,
-        parsed_date_from = parsed_date_from,
-        parsed_date_to = parsed_date_to
-      )
+      data_type[[index]] <- json_scalar(record, "data_type")
+      unit[[index]] <- json_scalar(record, "unit")
+      numeric_value[[index]] <- numeric_value_from_record(record)
+      date_from[[index]] <- json_scalar(record, "date_from")
+      date_to[[index]] <- json_scalar(record, "date_to")
+      if (include_raw_columns) {
+        value_json[[index]] <- value_json_from_record(record)
+        platform_type[[index]] <- json_scalar(record, "platform_type")
+        device_id[[index]] <- json_scalar(record, "device_id")
+        source_id[[index]] <- json_scalar(record, "source_id")
+        source_name[[index]] <- json_scalar(record, "source_name")
+      }
     }
-    if (include_personal_id) {
-      row$personalId <- personal_id
-    }
-    rows[[index]] <- row
   }
 
-  rbindlist(rows, use.names = TRUE, fill = TRUE)
+  has_date <- nchar(date_from) >= 10L
+  date[has_date] <- substr(date_from[has_date], 1L, 10L)
+
+  rows <- data.table(
+    subject_id = rep(subject_id, record_count),
+    data_type = data_type,
+    unit = unit,
+    numeric_value = numeric_value,
+    date = date,
+    parsed_date_from = parse_timestamps(date_from),
+    parsed_date_to = parse_timestamps(date_to)
+  )
+  if (include_raw_columns) {
+    rows[
+      ,
+      `:=`(
+        record_id = paste0(subject_id, ":", sprintf("%08d", record_index)),
+        record_index = record_index,
+        value_json = value_json,
+        date_from = date_from,
+        date_to = date_to,
+        platform_type = platform_type,
+        device_id = device_id,
+        source_id = source_id,
+        source_name = source_name,
+        source_file = rep(source_file, record_count)
+      )
+    ]
+    setcolorder(
+      rows,
+      c(
+        "subject_id",
+        "record_id",
+        "record_index",
+        "data_type",
+        "unit",
+        "numeric_value",
+        "value_json",
+        "date_from",
+        "date_to",
+        "date",
+        "platform_type",
+        "device_id",
+        "source_id",
+        "source_name",
+        "source_file",
+        "parsed_date_from",
+        "parsed_date_to"
+      )
+    )
+  }
+  if (include_personal_id) {
+    rows[, personalId := personal_id]
+  }
+  rows
 }
 
 write_manifest <- function(path, manifest) {
@@ -448,8 +519,8 @@ write_readme <- function(path) {
     "",
     "Main files:",
     "",
-    "- `raw/health_records.csv.gz`: one row per raw health record.",
-    "- `derived/daily_health_records.csv.gz`: daily deduplicated numeric health rows.",
+    "- `raw/health_records.csv.gz`: one row per raw health record, omitted when `--skip-raw-health-records true` is used.",
+    "- `derived/daily_health_records.csv.gz`: daily deduplicated numeric health rows, omitted when `--skip-daily-health-records-gz true` is used.",
     "- `export_logs/daily_health_records_transform/daily_health_records.csv`: uncompressed daily records used for clinical alignment.",
     "- `keys_sensitive_separate/personal_id_map.csv`: direct identifier mapping.",
     "- `derived/clinical_alignment/`: clinical-aligned outputs when keys and clinical files were provided.",
@@ -530,9 +601,15 @@ for (directory in c("raw", "derived", "metadata", "keys_sensitive_separate", "ex
 }
 
 include_personal_id <- as_flag(args$include_personal_id_in_main, default = FALSE)
+skip_raw_health_records <- as_flag(args$skip_raw_health_records, default = FALSE)
+skip_daily_health_records_gz <- as_flag(args$skip_daily_health_records_gz, default = FALSE)
 bucket_minutes <- as.integer(args$bucket_minutes)
 if (is.na(bucket_minutes) || bucket_minutes < 1 || 60 %% bucket_minutes != 0) {
   stop("--bucket-minutes must be a positive divisor of 60.", call. = FALSE)
+}
+gzip_level <- as.integer(args$gzip_level)
+if (is.na(gzip_level) || gzip_level < 0 || gzip_level > 9) {
+  stop("--gzip-level must be an integer from 0 to 9.", call. = FALSE)
 }
 exact_interval <- as_flag(args$exact_interval, default = FALSE)
 skip_alignment <- as_flag(
@@ -593,17 +670,31 @@ daily_plain_dir <- file.path(output_dir, "export_logs", "daily_health_records_tr
 dir.create(daily_plain_dir, recursive = TRUE, showWarnings = FALSE)
 daily_plain_path <- file.path(daily_plain_dir, "daily_health_records.csv")
 
-raw_con <- gzfile(raw_path, open = "wt", encoding = "UTF-8")
-daily_gz_con <- gzfile(daily_gz_path, open = "wt", encoding = "UTF-8")
+raw_con <- NULL
+if (!skip_raw_health_records) {
+  raw_con <- gzfile(raw_path, open = "wt", encoding = "UTF-8", compression = gzip_level)
+}
+daily_gz_con <- NULL
+if (!skip_daily_health_records_gz) {
+  daily_gz_con <- gzfile(daily_gz_path, open = "wt", encoding = "UTF-8", compression = gzip_level)
+}
 daily_plain_con <- file(daily_plain_path, open = "wt", encoding = "UTF-8")
 on.exit({
-  try(close(raw_con), silent = TRUE)
-  try(close(daily_gz_con), silent = TRUE)
+  if (!is.null(raw_con)) {
+    try(close(raw_con), silent = TRUE)
+  }
+  if (!is.null(daily_gz_con)) {
+    try(close(daily_gz_con), silent = TRUE)
+  }
   try(close(daily_plain_con), silent = TRUE)
 }, add = TRUE)
 
-writeLines(paste(raw_fields, collapse = ","), raw_con, useBytes = TRUE)
-writeLines(paste(daily_fields, collapse = ","), daily_gz_con, useBytes = TRUE)
+if (!skip_raw_health_records) {
+  writeLines(paste(raw_fields, collapse = ","), raw_con, useBytes = TRUE)
+}
+if (!skip_daily_health_records_gz) {
+  writeLines(paste(daily_fields, collapse = ","), daily_gz_con, useBytes = TRUE)
+}
 writeLines(paste(daily_fields, collapse = ","), daily_plain_con, useBytes = TRUE)
 
 manifest_users <- vector("list", length(user_files))
@@ -618,7 +709,14 @@ for (i in seq_along(user_files)) {
   subject_id <- subject_map[[personal_id]]
   source_file <- file.path("users", basename(path))
   cat(sprintf("[%d/%d] Transforming %s\n", i, length(user_files), basename(path)))
-  rows <- records_for_user(path, subject_id, personal_id, source_file, include_personal_id)
+  rows <- records_for_user(
+    path,
+    subject_id,
+    personal_id,
+    source_file,
+    include_personal_id,
+    include_raw_columns = !skip_raw_health_records
+  )
   raw_records_total <- raw_records_total + nrow(rows)
   numeric_records_total <- numeric_records_total + rows[!is.na(numeric_value), .N]
 
@@ -634,16 +732,20 @@ for (i in seq_along(user_files)) {
     }
   }
 
-  raw_output <- copy(rows)
-  raw_output[, (raw_internal_drop) := NULL]
-  write_csv_lines(raw_con, raw_output, raw_fields)
+  if (!skip_raw_health_records) {
+    raw_output <- copy(rows)
+    raw_output[, (raw_internal_drop) := NULL]
+    write_csv_lines(raw_con, raw_output, raw_fields)
+  }
 
   daily <- daily_rows_for_user(rows, bucket_minutes, exact_interval)
   if (include_personal_id && nrow(daily)) {
     daily[, personalId := personal_id]
     setcolorder(daily, daily_fields)
   }
-  write_csv_lines(daily_gz_con, daily, daily_fields)
+  if (!skip_daily_health_records_gz) {
+    write_csv_lines(daily_gz_con, daily, daily_fields)
+  }
   write_csv_lines(daily_plain_con, daily, daily_fields)
   daily_rows_total <- daily_rows_total + nrow(daily)
 
@@ -657,8 +759,12 @@ for (i in seq_along(user_files)) {
   )
 }
 
-close(raw_con)
-close(daily_gz_con)
+if (!is.null(raw_con)) {
+  close(raw_con)
+}
+if (!is.null(daily_gz_con)) {
+  close(daily_gz_con)
+}
 close(daily_plain_con)
 on.exit(NULL, add = FALSE)
 
@@ -673,10 +779,14 @@ manifest <- list(
   usersDir = users_dir,
   outputDir = normalizePath(output_dir, mustWork = TRUE),
   includePersonalIdInMain = include_personal_id,
+  skipRawHealthRecords = skip_raw_health_records,
+  skipDailyHealthRecordsGz = skip_daily_health_records_gz,
+  gzipLevel = gzip_level,
   dedupeMode = if (exact_interval) "exact_interval" else "date_from_bucket",
   bucketMinutes = if (exact_interval) NULL else bucket_minutes,
   rawHealthRecords = list(
-    csv = "raw/health_records.csv.gz",
+    csv = if (skip_raw_health_records) NULL else "raw/health_records.csv.gz",
+    skipped = skip_raw_health_records,
     summary = list(
       userCount = length(user_files),
       rawRecords = raw_records_total,
@@ -686,7 +796,8 @@ manifest <- list(
     )
   ),
   dailyHealthRecords = list(
-    csv = "derived/daily_health_records.csv.gz",
+    csv = if (skip_daily_health_records_gz) NULL else "derived/daily_health_records.csv.gz",
+    skippedGz = skip_daily_health_records_gz,
     alignmentInputCsv = "export_logs/daily_health_records_transform/daily_health_records.csv",
     dailyRows = daily_rows_total
   ),

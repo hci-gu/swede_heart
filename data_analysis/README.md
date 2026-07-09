@@ -16,14 +16,14 @@ Rscript data_analysis/scripts/00_build_full_export.R \
   --keys /path/to/pnrkey_DAT-1261.xlsx \
   --clinical /path/to/health_information.xlsx \
   --window-before 365 \
-  --window-after 365
+  --window-after 365 \
+  --skip-raw-health-records true \
+  --skip-daily-health-records-gz true
 ```
 
 Main outputs:
 
 ```text
-raw/health_records.csv.gz
-derived/daily_health_records.csv.gz
 export_logs/daily_health_records_transform/daily_health_records.csv
 keys_sensitive_separate/personal_id_map.csv
 derived/clinical_alignment/subject_index.csv
@@ -32,6 +32,13 @@ derived/clinical_alignment/daily_features_aligned.csv
 manifest.json
 checksums.md5
 ```
+
+Use `--skip-raw-health-records true --skip-daily-health-records-gz true` when
+the goal is only the aligned analysis outputs. This omits
+`raw/health_records.csv.gz`, skips raw-only JSON serialization, and avoids
+writing a compressed duplicate of the daily alignment input. Leave those false
+if you also need one tidy row per raw health record and a compressed daily
+handoff file.
 
 Clinical alignment also extracts `has_received_physiotherapy` from sheet
 `Physio`. By default, columns `E`, `F`, and `G` are checked; `Ja` in any of
