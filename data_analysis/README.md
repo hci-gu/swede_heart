@@ -45,6 +45,24 @@ handoff file.
 available for aligned-output runs where both `--skip-raw-health-records true`
 and `--skip-daily-health-records-gz true` are set.
 
+Run a parallel-path smoke test first with `--test-run true`. This processes
+only the first worker batch, then still writes the joined daily CSV, manifest,
+checksums, and clinical alignment outputs:
+
+```bash
+Rscript data_analysis/scripts/00_build_full_export.R \
+  --raw-data-dir /path/to/raw-download \
+  --output-dir /path/to/aligned_export_test \
+  --keys /path/to/pnrkey_DAT-1261.xlsx \
+  --clinical /path/to/health_information.xlsx \
+  --window-before 365 \
+  --window-after 365 \
+  --skip-raw-health-records true \
+  --skip-daily-health-records-gz true \
+  --workers 12 \
+  --test-run true
+```
+
 Clinical alignment also extracts `has_received_physiotherapy` from sheet
 `Physio`. By default, columns `E`, `F`, and `G` are checked; `Ja` in any of
 those columns means `TRUE`, `Nej` means `FALSE`, and missing/no matching value

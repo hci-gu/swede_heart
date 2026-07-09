@@ -33,6 +33,7 @@ Optional:
   --skip-daily-health-records-gz true|false
                                        Default: false. Omit derived/daily_health_records.csv.gz.
   --workers N                          Default: 1. Parallel user transforms for aligned-only exports.
+  --test-run true|false                Default: false. Process only one worker batch end-to-end.
   --bucket-minutes N                   Default: 10.
   --exact-interval true|false          Default: false.
   --gzip-level N                       Default: 1. Use 6 for smaller files, slower writes.
@@ -74,6 +75,7 @@ parse_args <- function(args) {
     skip_raw_health_records = "false",
     skip_daily_health_records_gz = "false",
     workers = "1",
+    test_run = "false",
     bucket_minutes = "10",
     exact_interval = "false",
     gzip_level = "1",
@@ -840,6 +842,7 @@ workers <- as.integer(args$workers)
 if (is.na(workers) || workers < 1) {
   stop("--workers must be a positive integer.", call. = FALSE)
 }
+test_run <- as_flag(args$test_run, default = FALSE)
 bucket_minutes <- as.integer(args$bucket_minutes)
 if (is.na(bucket_minutes) || bucket_minutes < 1 || 60 %% bucket_minutes != 0) {
   stop("--bucket-minutes must be a positive divisor of 60.", call. = FALSE)
@@ -858,7 +861,17 @@ user_files <- sort(list.files(users_dir, pattern = "\\.json$", full.names = TRUE
 if (!length(user_files)) {
   stop(sprintf("No user JSON files found in %s", users_dir), call. = FALSE)
 }
+available_user_count <- length(user_files)
 workers <- min(workers, length(user_files))
+if (test_run) {
+  test_user_count <- workers
+  user_files <- user_files[seq_len(test_user_count)]
+  cat(sprintf(
+    "Test run enabled: processing first %d user(s), one per configured worker\n",
+    length(user_files)
+  ))
+  flush.console()
+}
 if (workers > 1 && !skip_raw_health_records) {
   stop("--workers > 1 currently requires --skip-raw-health-records true.", call. = FALSE)
 }
@@ -1134,6 +1147,8 @@ manifest <- list(
   skipRawHealthRecords = skip_raw_health_records,
   skipDailyHealthRecordsGz = skip_daily_health_records_gz,
   workers = workers,
+  testRun = test_run,
+  availableUserCount = available_user_count,
   gzipLevel = gzip_level,
   dedupeMode = if (exact_interval) "exact_interval" else "date_from_bucket",
   bucketMinutes = if (exact_interval) NULL else bucket_minutes,
