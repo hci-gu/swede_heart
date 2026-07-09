@@ -250,6 +250,78 @@ value_json_from_record <- function(record) {
   jsonlite::toJSON(value, auto_unbox = TRUE, null = "null", digits = NA)
 }
 
+scalar_text <- function(value) {
+  if (is.null(value) || length(value) == 0) {
+    return("")
+  }
+  item <- value[[1]]
+  if (is.null(item) || length(item) == 0) {
+    return("")
+  }
+  if (length(item) > 1) {
+    item <- item[[1]]
+  }
+  if (is.na(item)) {
+    return("")
+  }
+  as.character(item)
+}
+
+table_character_column <- function(rows, name, default = "") {
+  row_count <- nrow(rows)
+  if (!name %in% names(rows)) {
+    return(rep(default, row_count))
+  }
+  value <- rows[[name]]
+  if (is.data.frame(value)) {
+    return(rep(default, row_count))
+  }
+  if (is.list(value) && !is.atomic(value)) {
+    return(vapply(value, scalar_text, character(1), USE.NAMES = FALSE))
+  }
+  text <- as.character(value)
+  text[is.na(text)] <- default
+  text
+}
+
+scalar_numeric <- function(value) {
+  if (is.null(value) || length(value) == 0) {
+    return(NA_real_)
+  }
+  item <- value[[1]]
+  if (is.null(item) || length(item) == 0) {
+    return(NA_real_)
+  }
+  if (length(item) > 1) {
+    item <- item[[1]]
+  }
+  if (is.logical(item)) {
+    return(NA_real_)
+  }
+  suppressWarnings(as.numeric(item))
+}
+
+table_numeric_column <- function(rows, candidates) {
+  row_count <- nrow(rows)
+  for (name in candidates) {
+    if (!name %in% names(rows)) {
+      next
+    }
+    value <- rows[[name]]
+    if (is.data.frame(value)) {
+      next
+    }
+    if (is.list(value) && !is.atomic(value)) {
+      return(vapply(value, scalar_numeric, numeric(1), USE.NAMES = FALSE))
+    }
+    if (is.logical(value)) {
+      return(rep(NA_real_, length(value)))
+    }
+    return(suppressWarnings(as.numeric(value)))
+  }
+  rep(NA_real_, row_count)
+}
+
 aggregation_for <- function(data_type) {
   fifelse(data_type == "STEPS", "sum", "mean")
 }
@@ -395,7 +467,52 @@ empty_records_table <- function(include_personal_id, include_raw_columns) {
   empty
 }
 
+records_for_user_fast_daily <- function(path, subject_id, personal_id, source_file, include_personal_id) {
+  records <- tryCatch(
+    jsonlite::fromJSON(path, simplifyVector = TRUE, simplifyDataFrame = TRUE, flatten = TRUE),
+    error = function(error) NULL
+  )
+  if (!is.data.frame(records)) {
+    return(NULL)
+  }
+
+  record_count <- nrow(records)
+  if (!record_count) {
+    return(empty_records_table(include_personal_id, include_raw_columns = FALSE))
+  }
+
+  date_from <- table_character_column(records, "date_from")
+  date_to <- table_character_column(records, "date_to")
+  date <- rep("", record_count)
+  has_date <- nchar(date_from) >= 10L
+  date[has_date] <- substr(date_from[has_date], 1L, 10L)
+
+  rows <- data.table(
+    subject_id = rep(subject_id, record_count),
+    data_type = table_character_column(records, "data_type"),
+    unit = table_character_column(records, "unit"),
+    numeric_value = table_numeric_column(
+      records,
+      c("value.numericValue", "value_numericValue", "numericValue")
+    ),
+    date = date,
+    parsed_date_from = parse_timestamps(date_from),
+    parsed_date_to = parse_timestamps(date_to)
+  )
+  if (include_personal_id) {
+    rows[, personalId := personal_id]
+  }
+  rows
+}
+
 records_for_user <- function(path, subject_id, personal_id, source_file, include_personal_id, include_raw_columns) {
+  if (!include_raw_columns) {
+    fast_rows <- records_for_user_fast_daily(path, subject_id, personal_id, source_file, include_personal_id)
+    if (!is.null(fast_rows)) {
+      return(fast_rows)
+    }
+  }
+
   records <- jsonlite::fromJSON(path, simplifyVector = FALSE)
   if (!is.list(records)) {
     stop(sprintf("Expected %s to contain a JSON array.", path), call. = FALSE)
