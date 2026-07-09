@@ -76,6 +76,10 @@ Clinical alignment derives demographics from `personalId`:
   third digit after the hyphen is odd for `male` and even for `female`.
 - `age` is age in completed years at `heartattack_date`.
 
+`personalId` is used only internally for joins and derived demographics. It is
+not written to the aligned analysis files; direct identifiers are kept in
+`keys_sensitive_separate/personal_id_map.csv`.
+
 Dependencies:
 
 - `data.table`
@@ -130,7 +134,7 @@ main_plot_type: "line"   # "line" or "boxplot"
 
 `subject_index.csv` has one row per person and defines the analysis cohort.
 It includes derived `birth_date`, `gender`, `age`, and
-`has_received_physiotherapy`.
+`has_received_physiotherapy`, but not direct `personalId`.
 
 `health_records_aligned.csv` keeps one row per health record and adds:
 

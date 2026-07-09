@@ -805,7 +805,6 @@ daily_features <- merge(
     ,
     .(
       subject_id,
-      personalId,
       birth_date,
       gender,
       age,
@@ -821,14 +820,26 @@ daily_features <- merge(
 setorder(daily_features, subject_id, relative_day)
 aligned[, numeric_value := NULL]
 
+drop_direct_identifiers <- function(data) {
+  cols <- intersect(c("personalId"), names(data))
+  if (length(cols)) {
+    data[, (cols) := NULL]
+  }
+  data
+}
+
+subject_index_output <- drop_direct_identifiers(copy(subject_index))
+aligned_output <- drop_direct_identifiers(copy(aligned))
+daily_features_output <- drop_direct_identifiers(copy(daily_features))
+
 output_dir <- args$output_dir
 subject_index_path <- file.path(output_dir, "subject_index.csv")
 aligned_path <- file.path(output_dir, "health_records_aligned.csv")
 daily_features_path <- file.path(output_dir, "daily_features_aligned.csv")
 
-write_csv(subject_index, subject_index_path)
-write_csv(aligned, aligned_path)
-write_csv(daily_features, daily_features_path)
+write_csv(subject_index_output, subject_index_path)
+write_csv(aligned_output, aligned_path)
+write_csv(daily_features_output, daily_features_path)
 
 message("Wrote subject index: ", subject_index_path)
 message("Wrote aligned health records: ", aligned_path)
