@@ -145,10 +145,12 @@ command <- c(
   "--clinical-heartattack-date-col", args$clinical_heartattack_date_col,
   "--clinical-heartattack-type-col", args$clinical_heartattack_type_col,
   "--clinical-physio-sheet", args$clinical_physio_sheet,
-  "--clinical-physio-key-col", args$clinical_physio_key_col,
   "--clinical-physio-value-cols", args$clinical_physio_value_cols
 )
 
+if (!is.null(args$clinical_physio_key_col) && args$clinical_physio_key_col != "") {
+  command <- c(command, "--clinical-physio-key-col", args$clinical_physio_key_col)
+}
 if (!is.null(args$window_before) && args$window_before != "") {
   command <- c(command, "--window-before", args$window_before)
 }
