@@ -24,6 +24,12 @@ spec:
             - containerPort: 8080
               name: web
               protocol: TCP
+          env:
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: swedeheart-api-secret
+                  key: api-key
           volumeMounts:
           - mountPath: /pb/pb_data
             name: swedeheart-api-persistent-storage
